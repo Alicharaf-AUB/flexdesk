@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import {
   Search,
@@ -9,6 +9,7 @@ import {
   Clock,
   Timer,
   ChevronRight,
+  ChevronLeft,
   Star,
   Wifi,
   Coffee,
@@ -91,9 +92,66 @@ function AnimatedPerkIcon({ perk, hovering }: { perk: string; hovering: boolean 
   }
 }
 
+/* ===== Date / Time helpers ===== */
+const DAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+function isSameDay(a: Date, b: Date) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function formatDate(d: Date) {
+  const today = new Date();
+  if (isSameDay(d, today)) return "Today";
+  const tomorrow = new Date();
+  tomorrow.setDate(today.getDate() + 1);
+  if (isSameDay(d, tomorrow)) return "Tomorrow";
+  return `${MONTHS[d.getMonth()].slice(0, 3)} ${d.getDate()}`;
+}
+
+function generateTimeSlots() {
+  const slots: string[] = [];
+  for (let h = 6; h <= 22; h++) {
+    slots.push(`${h === 0 ? 12 : h > 12 ? h - 12 : h}:00 ${h < 12 ? "AM" : "PM"}`);
+    slots.push(`${h === 0 ? 12 : h > 12 ? h - 12 : h}:30 ${h < 12 ? "AM" : "PM"}`);
+  }
+  return slots;
+}
+
+const TIME_SLOTS = generateTimeSlots();
+
 export default function LandingPage() {
   const [selectedDuration, setSelectedDuration] = useState("2h");
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedTime, setSelectedTime] = useState("Now");
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [calMonth, setCalMonth] = useState(new Date().getMonth());
+  const [calYear, setCalYear] = useState(new Date().getFullYear());
+  const dateRef = useRef<HTMLDivElement>(null);
+  const timeRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (dateRef.current && !dateRef.current.contains(e.target as Node)) setShowDatePicker(false);
+      if (timeRef.current && !timeRef.current.contains(e.target as Node)) setShowTimePicker(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // Calendar grid for the current month view
+  const firstDay = new Date(calYear, calMonth, 1).getDay();
+  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+  const calendarDays: (number | null)[] = Array(firstDay).fill(null);
+  for (let d = 1; d <= daysInMonth; d++) calendarDays.push(d);
+
+  const canGoPrev = calYear > today.getFullYear() || (calYear === today.getFullYear() && calMonth > today.getMonth());
 
   return (
     <div className="bg-blueprint">
@@ -132,20 +190,125 @@ export default function LandingPage() {
                   </div>
                 </div>
                 <div className="hidden md:block w-px bg-border-light my-2" />
-                <div className="flex items-center gap-3 px-4 py-3 rounded-[var(--radius-input)] hover:bg-surface-muted transition-colors cursor-pointer group">
-                  <Calendar className="w-5 h-5 text-brand-500 shrink-0" />
-                  <div>
-                    <p className="text-xs font-medium text-text-muted">Date</p>
-                    <p className="text-sm font-semibold text-text-primary group-hover:text-brand-600 transition-colors">Today</p>
+                {/* Date picker */}
+                <div ref={dateRef} className="relative">
+                  <div
+                    onClick={() => { setShowDatePicker(!showDatePicker); setShowTimePicker(false); }}
+                    className={`flex items-center gap-3 px-4 py-3 rounded-[var(--radius-input)] hover:bg-surface-muted transition-colors cursor-pointer group ${showDatePicker ? "bg-surface-muted" : ""}`}
+                  >
+                    <Calendar className="w-5 h-5 text-brand-500 shrink-0" />
+                    <div>
+                      <p className="text-xs font-medium text-text-muted">Date</p>
+                      <p className="text-sm font-semibold text-text-primary group-hover:text-brand-600 transition-colors">{formatDate(selectedDate)}</p>
+                    </div>
                   </div>
+
+                  {showDatePicker && (
+                    <div className="absolute top-full left-0 mt-2 bg-white rounded-2xl border border-border-light p-4 z-50 w-[280px] animate-fade-in-up" style={{ boxShadow: "var(--shadow-elevated)" }}>
+                      {/* Month navigation */}
+                      <div className="flex items-center justify-between mb-3">
+                        <button
+                          onClick={() => {
+                            if (!canGoPrev) return;
+                            if (calMonth === 0) { setCalMonth(11); setCalYear(calYear - 1); }
+                            else setCalMonth(calMonth - 1);
+                          }}
+                          className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors ${canGoPrev ? "hover:bg-surface-muted text-text-secondary" : "text-border-light cursor-not-allowed"}`}
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        <span className="text-sm font-bold text-text-primary">{MONTHS[calMonth]} {calYear}</span>
+                        <button
+                          onClick={() => {
+                            if (calMonth === 11) { setCalMonth(0); setCalYear(calYear + 1); }
+                            else setCalMonth(calMonth + 1);
+                          }}
+                          className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-surface-muted text-text-secondary transition-colors"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      {/* Day headers */}
+                      <div className="grid grid-cols-7 gap-1 mb-1">
+                        {DAYS.map((d) => (
+                          <div key={d} className="text-center text-[10px] font-semibold text-text-muted py-1">{d}</div>
+                        ))}
+                      </div>
+
+                      {/* Day grid */}
+                      <div className="grid grid-cols-7 gap-1">
+                        {calendarDays.map((day, i) => {
+                          if (day === null) return <div key={`empty-${i}`} />;
+                          const date = new Date(calYear, calMonth, day);
+                          date.setHours(0, 0, 0, 0);
+                          const isPast = date < today;
+                          const isSelected = isSameDay(date, selectedDate);
+                          const isToday = isSameDay(date, today);
+                          return (
+                            <button
+                              key={day}
+                              disabled={isPast}
+                              onClick={() => {
+                                setSelectedDate(date);
+                                setShowDatePicker(false);
+                              }}
+                              className={`w-8 h-8 flex items-center justify-center rounded-lg text-xs font-semibold transition-all ${
+                                isPast
+                                  ? "text-border-light cursor-not-allowed"
+                                  : isSelected
+                                  ? "bg-brand-600 text-white"
+                                  : isToday
+                                  ? "bg-brand-50 text-brand-600 hover:bg-brand-100"
+                                  : "text-text-primary hover:bg-surface-muted"
+                              }`}
+                            >
+                              {day}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
+
                 <div className="hidden md:block w-px bg-border-light my-2" />
-                <div className="flex items-center gap-3 px-4 py-3 rounded-[var(--radius-input)] hover:bg-surface-muted transition-colors cursor-pointer group">
-                  <Clock className="w-5 h-5 text-brand-500 shrink-0" />
-                  <div>
-                    <p className="text-xs font-medium text-text-muted">Time</p>
-                    <p className="text-sm font-semibold text-text-primary group-hover:text-brand-600 transition-colors">Now</p>
+                {/* Time picker */}
+                <div ref={timeRef} className="relative">
+                  <div
+                    onClick={() => { setShowTimePicker(!showTimePicker); setShowDatePicker(false); }}
+                    className={`flex items-center gap-3 px-4 py-3 rounded-[var(--radius-input)] hover:bg-surface-muted transition-colors cursor-pointer group ${showTimePicker ? "bg-surface-muted" : ""}`}
+                  >
+                    <Clock className="w-5 h-5 text-brand-500 shrink-0" />
+                    <div>
+                      <p className="text-xs font-medium text-text-muted">Time</p>
+                      <p className="text-sm font-semibold text-text-primary group-hover:text-brand-600 transition-colors">{selectedTime}</p>
+                    </div>
                   </div>
+
+                  {showTimePicker && (
+                    <div className="absolute top-full left-0 mt-2 bg-white rounded-2xl border border-border-light p-3 z-50 w-[200px] max-h-[280px] overflow-y-auto animate-fade-in-up" style={{ boxShadow: "var(--shadow-elevated)" }}>
+                      <button
+                        onClick={() => { setSelectedTime("Now"); setShowTimePicker(false); }}
+                        className={`w-full text-left px-3 py-2 rounded-lg text-sm font-semibold transition-colors mb-1 ${
+                          selectedTime === "Now" ? "bg-brand-600 text-white" : "text-text-primary hover:bg-surface-muted"
+                        }`}
+                      >
+                        Now
+                      </button>
+                      {TIME_SLOTS.map((slot) => (
+                        <button
+                          key={slot}
+                          onClick={() => { setSelectedTime(slot); setShowTimePicker(false); }}
+                          className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            selectedTime === slot ? "bg-brand-600 text-white" : "text-text-primary hover:bg-surface-muted"
+                          }`}
+                        >
+                          {slot}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="hidden md:block w-px bg-border-light my-2" />
                 <div className="flex items-center gap-3 px-4 py-3 rounded-[var(--radius-input)]">
@@ -167,7 +330,10 @@ export default function LandingPage() {
                     </div>
                   </div>
                 </div>
-                <Link href="/search" className="flex items-center justify-center gap-2 px-6 py-3 md:py-0 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-[var(--radius-button)] btn-press transition-colors">
+                <Link
+                  href={`/search?date=${selectedDate.toISOString().split("T")[0]}&time=${encodeURIComponent(selectedTime)}&duration=${selectedDuration}`}
+                  className="flex items-center justify-center gap-2 px-6 py-3 md:py-0 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-[var(--radius-button)] btn-press transition-colors"
+                >
                   <Search className="w-5 h-5" />
                   <span className="md:hidden">Find desks</span>
                 </Link>
