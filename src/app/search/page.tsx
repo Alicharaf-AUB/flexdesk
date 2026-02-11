@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import {
   Star,
   Wifi,
@@ -15,10 +16,11 @@ import {
   Map,
   List,
   X,
-  ChevronDown,
   MapPin,
 } from "lucide-react";
 import { listings, filterOptions } from "@/data/mock";
+
+const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
 
 const perkIconMap: Record<string, React.ReactNode> = {
   "Wi-Fi": <Wifi className="w-3.5 h-3.5" />,
@@ -50,14 +52,52 @@ export default function SearchPage() {
     );
   };
 
-  const filteredListings = listings.filter((l) => l.pricePerHour <= priceRange);
+  const filteredListings = listings.filter((l) => {
+    if (l.pricePerHour > priceRange) return false;
+    if (activeFilters.includes("Quiet") && !l.perks.includes("Quiet")) return false;
+    if (activeFilters.includes("Monitor") && !l.perks.includes("Monitor")) return false;
+    if (activeFilters.includes("Coffee") && !l.perks.includes("Coffee")) return false;
+    if (activeFilters.includes("Near Outlet") && !l.perks.includes("Outlet")) return false;
+    if (activeFilters.includes("AC") && !l.perks.includes("AC")) return false;
+    return true;
+  });
 
   return (
     <div className="h-[calc(100vh-64px)] flex flex-col bg-surface-muted">
+      {/* Leaflet CSS */}
+      <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        crossOrigin=""
+      />
+      <style>{`
+        .leaflet-popup-content-wrapper {
+          border-radius: 16px !important;
+          padding: 0 !important;
+          overflow: hidden;
+          box-shadow: 0 8px 30px rgba(0,0,0,0.12) !important;
+        }
+        .leaflet-popup-content {
+          margin: 0 !important;
+          padding: 12px 16px !important;
+          line-height: 1.4 !important;
+        }
+        .leaflet-popup-content > a {
+          text-decoration: none !important;
+          color: inherit !important;
+        }
+        .leaflet-popup-tip {
+          box-shadow: 0 4px 12px rgba(0,0,0,0.1) !important;
+        }
+        .custom-marker {
+          background: none !important;
+          border: none !important;
+        }
+      `}</style>
+
       {/* ===== TOP BAR ===== */}
-      <div className="bg-white border-b border-border-light px-4 sm:px-6 py-3">
+      <div className="bg-white border-b border-border-light px-4 sm:px-6 py-3 shrink-0">
         <div className="max-w-[1600px] mx-auto">
-          {/* Search summary */}
           <div className="flex items-center justify-between gap-4 mb-3">
             <div className="flex items-center gap-3 min-w-0">
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-surface-muted text-sm text-text-secondary">
@@ -103,7 +143,7 @@ export default function SearchPage() {
           </div>
 
           {/* Filter chips */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
+          <div className="flex items-center gap-2 overflow-x-auto pb-1">
             {filterOptions.map((filter) => (
               <button
                 key={filter.label}
@@ -120,7 +160,6 @@ export default function SearchPage() {
               </button>
             ))}
 
-            {/* Price range */}
             <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-surface-muted border border-border-light">
               <span className="text-xs font-semibold text-text-secondary whitespace-nowrap">
                 Up to ${priceRange}/hr
@@ -166,9 +205,9 @@ export default function SearchPage() {
                 href={`/listing/${listing.id}`}
                 className="group flex flex-col sm:flex-row bg-white rounded-[var(--radius-card)] overflow-hidden card-lift animate-fade-in-up"
                 style={{
-                  boxShadow: "var(--shadow-card)",
+                  boxShadow: hoveredListing === listing.id ? "var(--shadow-card-hover)" : "var(--shadow-card)",
                   animationDelay: `${index * 60}ms`,
-                  ...(hoveredListing === listing.id ? { boxShadow: "var(--shadow-card-hover)", transform: "translateY(-2px)" } : {}),
+                  transform: hoveredListing === listing.id ? "translateY(-2px)" : undefined,
                 }}
                 onMouseEnter={() => setHoveredListing(listing.id)}
                 onMouseLeave={() => setHoveredListing(null)}
@@ -202,7 +241,6 @@ export default function SearchPage() {
                       {listing.neighborhood} &middot; {listing.distance}
                     </p>
 
-                    {/* Perks */}
                     <div className="flex flex-wrap gap-1.5 mt-3">
                       {listing.perks.slice(0, 5).map((perk) => (
                         <span
@@ -216,7 +254,6 @@ export default function SearchPage() {
                     </div>
                   </div>
 
-                  {/* Bottom row */}
                   <div className="flex items-center justify-between mt-3">
                     <div className="availability-bar flex-1 max-w-40">
                       {listing.availability.map((avail, i) => (
@@ -245,7 +282,7 @@ export default function SearchPage() {
 
         {/* MAP */}
         <div
-          className={`bg-brand-50 relative ${
+          className={`relative ${
             viewMode === "list"
               ? "hidden"
               : viewMode === "map"
@@ -253,78 +290,11 @@ export default function SearchPage() {
               : "hidden lg:block flex-1"
           }`}
         >
-          {/* Simulated map */}
-          <div className="w-full h-full bg-blueprint relative overflow-hidden" style={{ background: "linear-gradient(135deg, #eff6ff 0%, #f0fdf4 100%)" }}>
-            {/* Grid overlay */}
-            <div className="absolute inset-0 bg-blueprint" />
-
-            {/* Map pins */}
-            {filteredListings.map((listing, i) => {
-              const positions = [
-                { left: "25%", top: "30%" },
-                { left: "55%", top: "20%" },
-                { left: "70%", top: "45%" },
-                { left: "20%", top: "65%" },
-                { left: "45%", top: "55%" },
-                { left: "65%", top: "70%" },
-              ];
-              const pos = positions[i % positions.length];
-
-              return (
-                <Link
-                  key={listing.id}
-                  href={`/listing/${listing.id}`}
-                  className={`absolute group z-10 transition-all duration-200 ${
-                    hoveredListing === listing.id ? "z-20 scale-110" : ""
-                  }`}
-                  style={{ left: pos.left, top: pos.top }}
-                  onMouseEnter={() => setHoveredListing(listing.id)}
-                  onMouseLeave={() => setHoveredListing(null)}
-                >
-                  {/* Pin */}
-                  <div
-                    className={`px-3 py-1.5 rounded-xl font-bold text-sm whitespace-nowrap transition-all ${
-                      hoveredListing === listing.id
-                        ? "bg-brand-600 text-white shadow-lg scale-105"
-                        : "bg-white text-text-primary shadow-md hover:bg-brand-600 hover:text-white"
-                    }`}
-                  >
-                    ${listing.pricePerHour}/hr
-                  </div>
-
-                  {/* Preview card on hover */}
-                  {hoveredListing === listing.id && (
-                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-64 bg-white rounded-[var(--radius-card)] overflow-hidden shadow-xl animate-fade-in-up z-30">
-                      <div className="h-28 bg-surface-muted">
-                        <img src={listing.photos[0]} alt={listing.name} className="w-full h-full object-cover" />
-                      </div>
-                      <div className="p-3">
-                        <h4 className="text-sm font-bold text-text-primary">{listing.name}</h4>
-                        <div className="flex items-center gap-1 mt-1">
-                          <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
-                          <span className="text-xs font-semibold">{listing.rating}</span>
-                          <span className="text-xs text-text-muted">&middot; {listing.neighborhood}</span>
-                        </div>
-                        <div className="flex flex-wrap gap-1 mt-2">
-                          {listing.perks.slice(0, 3).map((p) => (
-                            <span key={p} className="text-xs px-1.5 py-0.5 rounded bg-surface-muted text-text-muted font-medium">
-                              {p}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </Link>
-              );
-            })}
-
-            {/* Map decoration */}
-            <div className="absolute bottom-4 right-4 flex flex-col gap-1">
-              <button className="w-9 h-9 bg-white rounded-lg shadow-md flex items-center justify-center text-text-primary hover:bg-surface-muted transition-colors font-bold text-lg">+</button>
-              <button className="w-9 h-9 bg-white rounded-lg shadow-md flex items-center justify-center text-text-primary hover:bg-surface-muted transition-colors font-bold text-lg">&minus;</button>
-            </div>
-          </div>
+          <MapView
+            listings={filteredListings}
+            hoveredId={hoveredListing}
+            onHover={setHoveredListing}
+          />
         </div>
       </div>
     </div>
