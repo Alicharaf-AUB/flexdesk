@@ -108,8 +108,18 @@ const perkIconMap: Record<string, React.ReactNode> = {
 export default function BookingsPage() {
   const [activeTab, setActiveTab] = useState<"all" | "upcoming" | "past">("all");
   const [expandedBooking, setExpandedBooking] = useState<string | null>("b1");
+  const [bookings, setBookings] = useState(mockBookings);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
-  const filtered = mockBookings.filter((b) => {
+  const handleCancel = (id: string) => {
+    setCancellingId(id);
+    setTimeout(() => {
+      setBookings((prev) => prev.map((b) => b.id === id ? { ...b, status: "cancelled" as const } : b));
+      setCancellingId(null);
+    }, 600);
+  };
+
+  const filtered = bookings.filter((b) => {
     if (activeTab === "upcoming") return b.status === "upcoming" || b.status === "active";
     if (activeTab === "past") return b.status === "completed" || b.status === "cancelled";
     return true;
@@ -273,8 +283,16 @@ export default function BookingsPage() {
                                 <Navigation className="w-3.5 h-3.5" />
                                 View desk
                               </Link>
-                              <button className="flex-1 flex items-center justify-center gap-1.5 py-2.5 border border-border-light text-text-secondary text-xs font-semibold rounded-xl hover:bg-surface-muted transition-colors">
-                                Cancel
+                              <button
+                                onClick={() => handleCancel(booking.id)}
+                                disabled={cancellingId === booking.id}
+                                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 border text-xs font-semibold rounded-xl transition-all ${
+                                  cancellingId === booking.id
+                                    ? "border-red-200 bg-red-50 text-red-400 cursor-not-allowed"
+                                    : "border-border-light text-text-secondary hover:border-red-300 hover:bg-red-50 hover:text-red-600"
+                                }`}
+                              >
+                                {cancellingId === booking.id ? "Cancelling..." : "Cancel"}
                               </button>
                             </>
                           )}

@@ -15,11 +15,21 @@ export default function AuthModal({ isOpen, onClose, defaultTab = "login" }: Aut
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [success, setSuccess] = useState(false);
+  const [forgotPassword, setForgotPassword] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (forgotPassword) {
+      setResetSent(true);
+      setTimeout(() => {
+        setResetSent(false);
+        setForgotPassword(false);
+      }, 2000);
+      return;
+    }
     setSuccess(true);
     setTimeout(() => {
       setSuccess(false);
@@ -95,6 +105,29 @@ export default function AuthModal({ isOpen, onClose, defaultTab = "login" }: Aut
               </h3>
               <p className="text-sm text-text-secondary mt-1">Redirecting...</p>
             </div>
+          ) : resetSent ? (
+            <div className="text-center py-8">
+              <div className="w-16 h-16 rounded-full bg-brand-50 flex items-center justify-center mx-auto mb-4">
+                <Mail className="w-8 h-8 text-brand-600" />
+              </div>
+              <h3 className="text-lg font-bold text-text-primary">Check your email</h3>
+              <p className="text-sm text-text-secondary mt-1">We sent a reset link to <strong>{email || "your email"}</strong></p>
+            </div>
+          ) : forgotPassword ? (
+            <form onSubmit={handleSubmit}>
+              <button type="button" onClick={() => setForgotPassword(false)} className="text-xs font-medium text-brand-600 hover:text-brand-700 mb-4 flex items-center gap-1">
+                <ArrowRight className="w-3 h-3 rotate-180" /> Back to login
+              </button>
+              <h2 className="text-xl font-bold text-text-primary mb-1">Reset password</h2>
+              <p className="text-sm text-text-secondary mb-6">Enter your email and we&apos;ll send you a reset link.</p>
+              <div className="relative mb-5">
+                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-text-muted" />
+                <input type="email" placeholder="Email address" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full pl-11 pr-4 py-3 rounded-[var(--radius-input)] border border-border-light bg-white text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100 transition-all" />
+              </div>
+              <button type="submit" className="flex items-center justify-center gap-2 w-full py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-[var(--radius-button)] btn-press transition-colors" style={{ boxShadow: "var(--shadow-button)" }}>
+                Send reset link <ArrowRight className="w-4 h-4" />
+              </button>
+            </form>
           ) : (
             <form onSubmit={handleSubmit}>
               <h2 className="text-xl font-bold text-text-primary mb-1">
@@ -143,9 +176,9 @@ export default function AuthModal({ isOpen, onClose, defaultTab = "login" }: Aut
                 </div>
               </div>
 
-              {tab === "login" && (
+              {tab === "login" && !forgotPassword && (
                 <div className="flex justify-end mt-2">
-                  <button type="button" className="text-xs font-medium text-brand-600 hover:text-brand-700">
+                  <button type="button" onClick={() => setForgotPassword(true)} className="text-xs font-medium text-brand-600 hover:text-brand-700">
                     Forgot password?
                   </button>
                 </div>

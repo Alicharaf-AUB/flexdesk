@@ -28,7 +28,7 @@ import {
   Move,
   MousePointer2,
 } from "lucide-react";
-import { hostTemplates, type Zone } from "@/data/mock";
+import { hostTemplates } from "@/data/mock";
 
 const templateIcons: Record<string, React.ReactNode> = {
   home: <Home className="w-6 h-6" />,

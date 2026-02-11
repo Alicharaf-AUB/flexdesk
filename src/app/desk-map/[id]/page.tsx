@@ -12,8 +12,6 @@ import {
   VolumeX,
   Plug,
   Sun,
-  DoorOpen,
-  Printer,
   ZoomIn,
   ZoomOut,
   Maximize2,
