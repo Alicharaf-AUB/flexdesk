@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Search,
   MapPin,
@@ -21,7 +23,7 @@ import {
   Users,
   Shield,
 } from "lucide-react";
-import { listings } from "@/data/mock";
+import type { Listing } from "@/lib/types";
 
 const perkIconMap: Record<string, React.ReactNode> = {
   "Wi-Fi": <Wifi className="w-3.5 h-3.5" />,
@@ -32,6 +34,14 @@ const perkIconMap: Record<string, React.ReactNode> = {
 };
 
 const durations = ["1h", "2h", "4h", "Day"];
+const locationOptions: Array<{ id: string; label: string }> = [
+  { id: "all", label: "All locations" },
+  { id: "beirut", label: "Beirut, Lebanon" },
+  { id: "dubai", label: "Dubai, UAE" },
+  { id: "london", label: "London, UK" },
+  { id: "paris", label: "Paris, France" },
+  { id: "new-york", label: "New York, USA" },
+];
 
 /* ===== Animated icon components for hover ===== */
 function CoffeeSteamIcon({ hovering }: { hovering: boolean }) {
@@ -121,16 +131,21 @@ function generateTimeSlots() {
 const TIME_SLOTS = generateTimeSlots();
 
 export default function LandingPage() {
+  const router = useRouter();
   const [selectedDuration, setSelectedDuration] = useState("2h");
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedTime, setSelectedTime] = useState("Now");
+  const [selectedLocationId, setSelectedLocationId] = useState("all");
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [calMonth, setCalMonth] = useState(new Date().getMonth());
   const [calYear, setCalYear] = useState(new Date().getFullYear());
   const dateRef = useRef<HTMLDivElement>(null);
   const timeRef = useRef<HTMLDivElement>(null);
+  const [featuredListings, setFeaturedListings] = useState<Listing[]>([]);
+  const [featuredLoading, setFeaturedLoading] = useState(true);
+  const [featuredError, setFeaturedError] = useState<string | null>(null);
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -140,6 +155,30 @@ export default function LandingPage() {
     }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function load() {
+      try {
+        setFeaturedLoading(true);
+        const res = await fetch("/api/listings");
+        if (!res.ok) throw new Error("Failed to load spaces");
+        const data = await res.json();
+        if (isMounted) {
+          setFeaturedListings((data.listings || []).slice(0, 6));
+          setFeaturedError(null);
+        }
+      } catch (err) {
+        if (isMounted) setFeaturedError((err as Error).message);
+      } finally {
+        if (isMounted) setFeaturedLoading(false);
+      }
+    }
+    load();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const today = new Date();
@@ -156,7 +195,7 @@ export default function LandingPage() {
   return (
     <div className="bg-blueprint">
       {/* ===== HERO ===== */}
-      <section className="relative overflow-hidden">
+      <section className="relative overflow-visible">
         <div className="absolute top-20 -left-32 w-96 h-96 bg-brand-200 rounded-full opacity-20 blur-3xl" />
         <div className="absolute bottom-0 right-0 w-80 h-80 bg-accent-200 rounded-full opacity-15 blur-3xl" />
 
@@ -180,13 +219,23 @@ export default function LandingPage() {
 
           {/* ===== SEARCH BAR ===== */}
           <div className="mt-10 max-w-3xl mx-auto animate-fade-in-up" style={{ animationDelay: "150ms" }}>
-            <div className="glass rounded-[24px] p-2" style={{ boxShadow: "var(--shadow-elevated)" }}>
+            <div className="glass rounded-3xl p-2" style={{ boxShadow: "var(--shadow-elevated)" }}>
               <div className="flex flex-col md:flex-row gap-2">
-                <div className="flex-1 flex items-center gap-3 px-4 py-3 rounded-[var(--radius-input)] hover:bg-surface-muted transition-colors cursor-pointer group">
+                <div className="flex-1 flex items-center gap-3 px-4 py-3 rounded-(--radius-input) hover:bg-surface-muted transition-colors group">
                   <MapPin className="w-5 h-5 text-brand-500 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-text-muted">Location</p>
-                    <p className="text-sm font-semibold text-text-primary truncate group-hover:text-brand-600 transition-colors">Current location</p>
+                    <select
+                      value={selectedLocationId}
+                      onChange={(e) => setSelectedLocationId(e.target.value)}
+                      className="w-full bg-transparent text-sm font-semibold text-text-primary truncate focus:outline-none"
+                    >
+                      {locationOptions.map((loc) => (
+                        <option key={loc.id} value={loc.id}>
+                          {loc.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
                 <div className="hidden md:block w-px bg-border-light my-2" />
@@ -194,7 +243,7 @@ export default function LandingPage() {
                 <div ref={dateRef} className="relative">
                   <div
                     onClick={() => { setShowDatePicker(!showDatePicker); setShowTimePicker(false); }}
-                    className={`flex items-center gap-3 px-4 py-3 rounded-[var(--radius-input)] hover:bg-surface-muted transition-colors cursor-pointer group ${showDatePicker ? "bg-surface-muted" : ""}`}
+                    className={`flex items-center gap-3 px-4 py-3 rounded-(--radius-input) hover:bg-surface-muted transition-colors cursor-pointer group ${showDatePicker ? "bg-surface-muted" : ""}`}
                   >
                     <Calendar className="w-5 h-5 text-brand-500 shrink-0" />
                     <div>
@@ -204,7 +253,7 @@ export default function LandingPage() {
                   </div>
 
                   {showDatePicker && (
-                    <div className="absolute top-full left-0 mt-2 bg-white rounded-2xl border border-border-light p-4 z-50 w-[280px] animate-fade-in-up" style={{ boxShadow: "var(--shadow-elevated)" }}>
+                    <div className="absolute top-full left-0 mt-2 bg-white rounded-2xl border border-border-light p-4 z-50 w-70 animate-fade-in-up" style={{ boxShadow: "var(--shadow-elevated)" }}>
                       {/* Month navigation */}
                       <div className="flex items-center justify-between mb-3">
                         <button
@@ -277,7 +326,7 @@ export default function LandingPage() {
                 <div ref={timeRef} className="relative">
                   <div
                     onClick={() => { setShowTimePicker(!showTimePicker); setShowDatePicker(false); }}
-                    className={`flex items-center gap-3 px-4 py-3 rounded-[var(--radius-input)] hover:bg-surface-muted transition-colors cursor-pointer group ${showTimePicker ? "bg-surface-muted" : ""}`}
+                    className={`flex items-center gap-3 px-4 py-3 rounded-(--radius-input) hover:bg-surface-muted transition-colors cursor-pointer group ${showTimePicker ? "bg-surface-muted" : ""}`}
                   >
                     <Clock className="w-5 h-5 text-brand-500 shrink-0" />
                     <div>
@@ -287,7 +336,7 @@ export default function LandingPage() {
                   </div>
 
                   {showTimePicker && (
-                    <div className="absolute top-full left-0 mt-2 bg-white rounded-2xl border border-border-light p-3 z-50 w-[200px] max-h-[280px] overflow-y-auto animate-fade-in-up" style={{ boxShadow: "var(--shadow-elevated)" }}>
+                    <div className="absolute top-full left-0 mt-2 bg-white rounded-2xl border border-border-light p-3 z-50 w-50 max-h-70 overflow-y-auto animate-fade-in-up" style={{ boxShadow: "var(--shadow-elevated)" }}>
                       <button
                         onClick={() => { setSelectedTime("Now"); setShowTimePicker(false); }}
                         className={`w-full text-left px-3 py-2 rounded-lg text-sm font-semibold transition-colors mb-1 ${
@@ -311,7 +360,7 @@ export default function LandingPage() {
                   )}
                 </div>
                 <div className="hidden md:block w-px bg-border-light my-2" />
-                <div className="flex items-center gap-3 px-4 py-3 rounded-[var(--radius-input)]">
+                <div className="flex items-center gap-3 px-4 py-3 rounded-(--radius-input)">
                   <Timer className="w-5 h-5 text-brand-500 shrink-0" />
                   <div>
                     <p className="text-xs font-medium text-text-muted mb-1">Duration</p>
@@ -331,8 +380,8 @@ export default function LandingPage() {
                   </div>
                 </div>
                 <Link
-                  href={`/search?date=${selectedDate.toISOString().split("T")[0]}&time=${encodeURIComponent(selectedTime)}&duration=${selectedDuration}`}
-                  className="flex items-center justify-center gap-2 px-6 py-3 md:py-0 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-[var(--radius-button)] btn-press transition-colors"
+                  href={`/search?date=${selectedDate.toISOString().split("T")[0]}&time=${encodeURIComponent(selectedTime)}&duration=${selectedDuration}&loc=${selectedLocationId}`}
+                  className="flex items-center justify-center gap-2 px-6 py-3 md:py-0 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-button btn-press transition-colors"
                 >
                   <Search className="w-5 h-5" />
                   <span className="md:hidden">Find desks</span>
@@ -364,7 +413,7 @@ export default function LandingPage() {
               { step: "2", icon: <MapPin className="w-7 h-7 text-brand-600" />, title: "Pick a desk", desc: "Browse the floor plan. Choose the exact spot that fits your work style." },
               { step: "3", icon: <Sparkles className="w-7 h-7 text-brand-600" />, title: "Check in & work", desc: "Confirm your booking, show up, and get to work. That\u2019s it." },
             ].map((item) => (
-              <div key={item.step} className="relative bg-surface-muted rounded-[var(--radius-card)] p-8 text-center group hover:bg-white hover:shadow-[var(--shadow-card)] transition-all duration-300">
+              <div key={item.step} className="relative bg-surface-muted rounded-card p-8 text-center group hover:bg-white hover:shadow-(--shadow-card) transition-all duration-300">
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-7 h-7 rounded-full bg-brand-600 text-white text-xs font-bold flex items-center justify-center">{item.step}</div>
                 <div className="w-14 h-14 rounded-2xl bg-brand-50 flex items-center justify-center mx-auto mb-5 group-hover:scale-110 transition-transform">{item.icon}</div>
                 <h3 className="text-lg font-bold text-text-primary mb-2">{item.title}</h3>
@@ -389,30 +438,64 @@ export default function LandingPage() {
           </div>
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 stagger-children">
-            {listings.slice(0, 6).map((listing) => {
+            {featuredLoading ? (
+              Array.from({ length: 6 }).map((_, i) => (
+                <div key={`featured-skel-${i}`} className="bg-white rounded-card overflow-hidden border border-border-light" style={{ boxShadow: "var(--shadow-card)" }}>
+                  <div className="h-48 skeleton" />
+                  <div className="p-5 space-y-3">
+                    <div className="h-4 w-2/3 skeleton rounded" />
+                    <div className="h-3 w-1/3 skeleton rounded" />
+                    <div className="flex gap-2">
+                      <div className="h-6 w-14 skeleton rounded-full" />
+                      <div className="h-6 w-16 skeleton rounded-full" />
+                      <div className="h-6 w-12 skeleton rounded-full" />
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : featuredError ? (
+              <div className="sm:col-span-2 lg:col-span-3 bg-white rounded-card border border-border-light p-8 text-center" style={{ boxShadow: "var(--shadow-card)" }}>
+                <div className="text-sm font-semibold text-text-primary mb-2">Unable to load featured spaces</div>
+                <p className="text-sm text-text-muted mb-4">{featuredError}</p>
+                <button
+                  onClick={() => window.location.reload()}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-button transition-colors"
+                  style={{ boxShadow: "var(--shadow-button)" }}
+                >
+                  Retry
+                </button>
+              </div>
+            ) : (
+              featuredListings.map((listing) => {
               const isHovered = hoveredCard === listing.id;
               return (
                 <Link
                   key={listing.id}
                   href={`/listing/${listing.id}`}
-                  className="group bg-white rounded-[var(--radius-card)] overflow-hidden card-lift"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    router.push(`/listing/${listing.id}`);
+                  }}
+                  className="group bg-white rounded-card overflow-hidden card-lift"
                   style={{ boxShadow: "var(--shadow-card)" }}
                   onMouseEnter={() => setHoveredCard(listing.id)}
                   onMouseLeave={() => setHoveredCard(null)}
                 >
                   {/* Photo */}
                   <div className="relative h-48 bg-surface-muted overflow-hidden">
-                    <img
+                    <Image
                       src={listing.photos[0]}
                       alt={listing.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      fill
+                      sizes="(min-width: 1024px) 384px, (min-width: 640px) 50vw, 100vw"
+                      className="object-cover group-hover:scale-105 transition-transform duration-500"
                     />
                     <div className="absolute top-3 right-3 px-2.5 py-1 rounded-lg glass text-xs font-bold text-text-primary">
                       ${listing.pricePerHour}/hr
                     </div>
 
                     {/* Hover overlay with animated perks */}
-                    <div className={`absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent flex items-end p-4 transition-opacity duration-300 ${isHovered ? "opacity-100" : "opacity-0"}`}>
+                    <div className={`absolute inset-0 bg-linear-to-t from-black/50 via-transparent to-transparent flex items-end p-4 transition-opacity duration-300 ${isHovered ? "opacity-100" : "opacity-0"}`}>
                       <div className="flex items-center gap-3">
                         {listing.perks.slice(0, 3).map((perk) => (
                           <div key={perk} className="flex items-center gap-1 text-white text-xs font-medium">
@@ -443,7 +526,7 @@ export default function LandingPage() {
                       {listing.perks.slice(0, 4).map((perk, i) => (
                         <span
                           key={perk}
-                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-[var(--radius-chip)] text-xs font-medium transition-all duration-300 ${
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-chip text-xs font-medium transition-all duration-300 ${
                             isHovered
                               ? "bg-brand-50 text-brand-700 border border-brand-200"
                               : "bg-surface-muted text-text-secondary"
@@ -478,7 +561,7 @@ export default function LandingPage() {
                   </div>
                 </Link>
               );
-            })}
+            }))}
           </div>
 
           <div className="mt-8 text-center sm:hidden">
@@ -519,7 +602,7 @@ export default function LandingPage() {
               <p className="text-brand-200 max-w-lg mx-auto mb-8 leading-relaxed">
                 Turn your unused workspace into income. Our drag-and-drop builder makes setup effortless — like Canva for floor plans.
               </p>
-              <Link href="/host" className="inline-flex items-center gap-2 px-8 py-3.5 bg-white text-brand-700 font-bold rounded-[var(--radius-button)] btn-press hover:bg-brand-50 transition-colors" style={{ boxShadow: "var(--shadow-button)" }}>
+              <Link href="/host" className="inline-flex items-center gap-2 px-8 py-3.5 bg-white text-brand-700 font-bold rounded-button btn-press hover:bg-brand-50 transition-colors" style={{ boxShadow: "var(--shadow-button)" }}>
                 List your desk <ArrowRight className="w-5 h-5" />
               </Link>
             </div>

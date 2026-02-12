@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import {
   CalendarCheck,
@@ -18,79 +19,12 @@ import {
   QrCode,
   Navigation,
 } from "lucide-react";
-import { listings } from "@/data/mock";
+import type { Booking, Listing } from "@/lib/types";
 
-interface Booking {
-  id: string;
-  listingId: string;
-  deskLabel: string;
-  date: string;
-  time: string;
-  duration: string;
-  status: "upcoming" | "active" | "completed" | "cancelled";
-  totalPrice: number;
-  checkInCode: string;
-}
-
-const mockBookings: Booking[] = [
-  {
-    id: "b1",
-    listingId: "1",
-    deskLabel: "Q-1",
-    date: "Today",
-    time: "2:00 PM",
-    duration: "2h",
-    status: "active",
-    totalPrice: 18,
-    checkInCode: "FD-8294",
-  },
-  {
-    id: "b2",
-    listingId: "3",
-    deskLabel: "C-2",
-    date: "Tomorrow",
-    time: "9:00 AM",
-    duration: "4h",
-    status: "upcoming",
-    totalPrice: 53,
-    checkInCode: "FD-4571",
-  },
-  {
-    id: "b3",
-    listingId: "5",
-    deskLabel: "Q-4",
-    date: "Feb 8",
-    time: "10:00 AM",
-    duration: "2h",
-    status: "completed",
-    totalPrice: 22,
-    checkInCode: "FD-3316",
-  },
-  {
-    id: "b4",
-    listingId: "2",
-    deskLabel: "P-1",
-    date: "Feb 5",
-    time: "3:00 PM",
-    duration: "1h",
-    status: "completed",
-    totalPrice: 7,
-    checkInCode: "FD-9902",
-  },
-  {
-    id: "b5",
-    listingId: "4",
-    deskLabel: "C-3",
-    date: "Feb 3",
-    time: "11:00 AM",
-    duration: "Day",
-    status: "cancelled",
-    totalPrice: 40,
-    checkInCode: "FD-1187",
-  },
-];
+const mockBookings: Booking[] = [];
 
 const statusConfig = {
+  pending: { label: "Pending approval", bg: "bg-amber-50", text: "text-amber-700", dot: "bg-amber-500" },
   active: { label: "Active now", bg: "bg-green-50", text: "text-green-700", dot: "bg-green-500" },
   upcoming: { label: "Upcoming", bg: "bg-brand-50", text: "text-brand-700", dot: "bg-brand-500" },
   completed: { label: "Completed", bg: "bg-surface-muted", text: "text-text-muted", dot: "bg-text-muted" },
@@ -108,8 +42,42 @@ const perkIconMap: Record<string, React.ReactNode> = {
 export default function BookingsPage() {
   const [activeTab, setActiveTab] = useState<"all" | "upcoming" | "past">("all");
   const [expandedBooking, setExpandedBooking] = useState<string | null>("b1");
-  const [bookings, setBookings] = useState(mockBookings);
+  const [bookings, setBookings] = useState<Booking[]>(mockBookings);
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function load() {
+      try {
+        setIsLoading(true);
+        const [bookingsRes, listingsRes] = await Promise.all([
+          fetch("/api/bookings"),
+          fetch("/api/listings"),
+        ]);
+        if (bookingsRes.status === 401) throw new Error("Please log in to view bookings");
+        if (!bookingsRes.ok) throw new Error("Failed to load bookings");
+        if (!listingsRes.ok) throw new Error("Failed to load listings");
+        const data = await bookingsRes.json();
+        const listingsData = await listingsRes.json();
+        if (isMounted) {
+          setBookings(data.bookings || []);
+          setListings(listingsData.listings || []);
+          setError(null);
+        }
+      } catch (err) {
+        if (isMounted) setError((err as Error).message);
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    }
+    load();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const handleCancel = (id: string) => {
     setCancellingId(id);
@@ -120,7 +88,7 @@ export default function BookingsPage() {
   };
 
   const filtered = bookings.filter((b) => {
-    if (activeTab === "upcoming") return b.status === "upcoming" || b.status === "active";
+    if (activeTab === "upcoming") return b.status === "upcoming" || b.status === "active" || b.status === "pending";
     if (activeTab === "past") return b.status === "completed" || b.status === "cancelled";
     return true;
   });
@@ -135,12 +103,12 @@ export default function BookingsPage() {
               My Bookings
             </h1>
             <p className="text-text-secondary mt-1 text-sm">
-              {mockBookings.filter((b) => b.status === "upcoming" || b.status === "active").length} upcoming
+              {bookings.filter((b) => b.status === "upcoming" || b.status === "active" || b.status === "pending").length} upcoming
             </p>
           </div>
           <Link
             href="/search"
-            className="flex items-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-bold rounded-[var(--radius-button)] btn-press transition-colors"
+            className="flex items-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-bold rounded-button btn-press transition-colors"
             style={{ boxShadow: "var(--shadow-button)" }}
           >
             Book a desk
@@ -167,15 +135,67 @@ export default function BookingsPage() {
 
         {/* Bookings list */}
         <div className="space-y-4">
-          {filtered.map((booking) => {
-            const listing = listings.find((l) => l.id === booking.listingId) || listings[0];
+          {isLoading ? (
+            Array.from({ length: 3 }).map((_, i) => (
+              <div
+                key={`booking-skel-${i}`}
+                className="bg-white rounded-card overflow-hidden border border-border-light"
+                style={{ boxShadow: "var(--shadow-card)" }}
+              >
+                <div className="flex items-center gap-4 p-4 sm:p-5">
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl skeleton" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-3 w-24 skeleton rounded" />
+                    <div className="h-4 w-40 skeleton rounded" />
+                    <div className="h-3 w-32 skeleton rounded" />
+                  </div>
+                  <div className="w-16 space-y-2">
+                    <div className="h-4 w-16 skeleton rounded" />
+                    <div className="h-3 w-12 skeleton rounded" />
+                  </div>
+                </div>
+              </div>
+            ))
+          ) : error ? (
+            <div className="bg-white rounded-card border border-border-light p-8 text-center" style={{ boxShadow: "var(--shadow-card)" }}>
+              <div className="text-sm font-semibold text-text-primary mb-2">Unable to load bookings</div>
+              <p className="text-sm text-text-muted mb-4">{error}</p>
+              <button
+                onClick={() => window.location.reload()}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-button transition-colors"
+                style={{ boxShadow: "var(--shadow-button)" }}
+              >
+                Retry
+              </button>
+            </div>
+          ) : (
+            filtered.map((booking) => {
+            const listing = listings.find((l) => l.id === booking.listingId) || {
+              id: booking.listingId,
+              name: "Workspace",
+              neighborhood: "",
+              address: "",
+              distance: "",
+              rating: 0,
+              reviewCount: 0,
+              pricePerHour: 0,
+              photos: ["https://images.unsplash.com/photo-1497366216548-37526070297c?w=800&h=500&fit=crop"],
+              perks: [],
+              vibeTags: [],
+              availability: [],
+              lat: 0,
+              lng: 0,
+              description: "",
+              rules: [],
+              vibe: { quiet: 0, bright: 0, focus: 0 },
+            };
             const sc = statusConfig[booking.status];
             const isExpanded = expandedBooking === booking.id;
 
             return (
               <div
                 key={booking.id}
-                className={`bg-white rounded-[var(--radius-card)] overflow-hidden transition-all ${
+                className={`bg-white rounded-card overflow-hidden transition-all ${
                   booking.status === "active" ? "ring-2 ring-green-300" : ""
                 }`}
                 style={{ boxShadow: "var(--shadow-card)" }}
@@ -186,8 +206,14 @@ export default function BookingsPage() {
                   className="w-full flex items-center gap-4 p-4 sm:p-5 text-left hover:bg-surface-hover transition-colors"
                 >
                   {/* Photo */}
-                  <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl overflow-hidden shrink-0 bg-surface-muted">
-                    <img src={listing.photos[0]} alt={listing.name} className="w-full h-full object-cover" />
+                  <div className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-2xl overflow-hidden shrink-0 bg-surface-muted">
+                    <Image
+                      src={listing.photos[0]}
+                      alt={listing.name}
+                      fill
+                      sizes="80px"
+                      className="object-cover"
+                    />
                   </div>
 
                   {/* Info */}
@@ -264,6 +290,13 @@ export default function BookingsPage() {
                           </div>
                         )}
 
+                        {booking.status === "pending" && (
+                          <div className="bg-amber-50 rounded-2xl p-4 border border-amber-200 text-center">
+                            <p className="text-xs font-semibold text-amber-700 mb-1">Awaiting host approval</p>
+                            <p className="text-xs text-amber-700">You’ll be notified once it’s approved.</p>
+                          </div>
+                        )}
+
                         <div className="flex gap-2">
                           {booking.status === "active" && (
                             <Link
@@ -312,9 +345,10 @@ export default function BookingsPage() {
                 )}
               </div>
             );
-          })}
+            })
+          )}
 
-          {filtered.length === 0 && (
+          {!isLoading && filtered.length === 0 && (
             <div className="text-center py-20">
               <div className="w-16 h-16 rounded-2xl bg-surface-muted flex items-center justify-center mx-auto mb-4">
                 <CalendarCheck className="w-7 h-7 text-text-muted" />
@@ -323,7 +357,7 @@ export default function BookingsPage() {
               <p className="text-sm text-text-secondary mb-4">Find your first desk and get to work.</p>
               <Link
                 href="/search"
-                className="inline-flex items-center gap-2 px-6 py-2.5 bg-brand-600 text-white text-sm font-bold rounded-[var(--radius-button)] btn-press hover:bg-brand-700 transition-colors"
+                className="inline-flex items-center gap-2 px-6 py-2.5 bg-brand-600 text-white text-sm font-bold rounded-button btn-press hover:bg-brand-700 transition-colors"
               >
                 Find a desk
                 <ArrowRight className="w-4 h-4" />

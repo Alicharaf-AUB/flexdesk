@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import dynamic from "next/dynamic";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Star,
   Wifi,
@@ -18,7 +20,8 @@ import {
   X,
   MapPin,
 } from "lucide-react";
-import { listings, filterOptions } from "@/data/mock";
+import { filterOptions } from "@/data/mock";
+import type { Listing } from "@/lib/types";
 
 const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
 
@@ -41,10 +44,79 @@ const filterIconMap: Record<string, React.ReactNode> = {
 };
 
 export default function SearchPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [priceRange, setPriceRange] = useState(20);
   const [viewMode, setViewMode] = useState<"split" | "map" | "list">("split");
   const [hoveredListing, setHoveredListing] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [selectedLocationId, setSelectedLocationId] = useState("all");
+
+  const locationOptions: Array<{
+    id: string;
+    label: string;
+    center?: [number, number];
+    zoom?: number;
+    radiusKm?: number;
+  }> = [
+    { id: "all", label: "All locations" },
+    { id: "beirut", label: "Beirut, Lebanon", center: [33.8938, 35.5018], zoom: 12, radiusKm: 40 },
+    { id: "dubai", label: "Dubai, UAE", center: [25.2048, 55.2708], zoom: 12, radiusKm: 45 },
+    { id: "london", label: "London, UK", center: [51.5074, -0.1278], zoom: 12, radiusKm: 50 },
+    { id: "paris", label: "Paris, France", center: [48.8566, 2.3522], zoom: 12, radiusKm: 45 },
+    { id: "new-york", label: "New York, USA", center: [40.7128, -74.006], zoom: 12, radiusKm: 50 },
+  ];
+
+  useEffect(() => {
+    const locParam = searchParams.get("loc");
+    if (locParam && locationOptions.some((loc) => loc.id === locParam)) {
+      setSelectedLocationId(locParam);
+    }
+  }, [searchParams]);
+
+  const selectedLocation = locationOptions.find((loc) => loc.id === selectedLocationId) || locationOptions[0];
+  const centerOverride = selectedLocation?.center ?? null;
+  const zoomOverride = selectedLocation?.zoom;
+
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const distanceKm = (a: [number, number], b: [number, number]) => {
+    const R = 6371;
+    const dLat = toRad(b[0] - a[0]);
+    const dLng = toRad(b[1] - a[1]);
+    const lat1 = toRad(a[0]);
+    const lat2 = toRad(b[0]);
+    const h =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.sin(dLng / 2) * Math.sin(dLng / 2) * Math.cos(lat1) * Math.cos(lat2);
+    return 2 * R * Math.asin(Math.sqrt(h));
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+    async function load() {
+      try {
+        setIsLoading(true);
+        const res = await fetch("/api/listings");
+        if (!res.ok) throw new Error("Failed to load listings");
+        const data = await res.json();
+        if (isMounted) {
+          setListings(data.listings || []);
+          setError(null);
+        }
+      } catch (err) {
+        if (isMounted) setError((err as Error).message);
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    }
+    load();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const toggleFilter = (label: string) => {
     setActiveFilters((prev) =>
@@ -53,6 +125,10 @@ export default function SearchPage() {
   };
 
   const filteredListings = listings.filter((l) => {
+    if (selectedLocation?.center && selectedLocation.radiusKm) {
+      const km = distanceKm(selectedLocation.center, [l.lat, l.lng]);
+      if (km > selectedLocation.radiusKm) return false;
+    }
     if (l.pricePerHour > priceRange) return false;
     if (activeFilters.includes("Quiet") && !l.perks.includes("Quiet")) return false;
     if (activeFilters.includes("Monitor") && !l.perks.includes("Monitor")) return false;
@@ -97,12 +173,25 @@ export default function SearchPage() {
 
       {/* ===== TOP BAR ===== */}
       <div className="bg-white border-b border-border-light px-4 sm:px-6 py-3 shrink-0">
-        <div className="max-w-[1600px] mx-auto">
+        <div className="max-w-400 mx-auto">
           <div className="flex items-center justify-between gap-4 mb-3">
             <div className="flex items-center gap-3 min-w-0">
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-surface-muted text-sm text-text-secondary">
                 <MapPin className="w-4 h-4 text-brand-500" />
-                <span className="font-medium truncate">Downtown</span>
+                <select
+                  value={selectedLocationId}
+                  onChange={(e) => {
+                    setSelectedLocationId(e.target.value);
+                    setViewMode("map");
+                  }}
+                  className="bg-transparent text-sm font-medium text-text-primary focus:outline-none"
+                >
+                  {locationOptions.map((loc) => (
+                    <option key={loc.id} value={loc.id}>
+                      {loc.label}
+                    </option>
+                  ))}
+                </select>
               </div>
               <span className="text-text-muted text-sm hidden sm:inline">&middot;</span>
               <span className="text-sm text-text-secondary hidden sm:inline">Today, 2h</span>
@@ -195,57 +284,115 @@ export default function SearchPage() {
               ? "hidden"
               : viewMode === "list"
               ? "w-full"
-              : "w-full lg:w-[480px] xl:w-[520px]"
+              : "w-full lg:w-120 xl:w-130"
           }`}
         >
           <div className={`p-4 space-y-4 ${viewMode === "list" ? "max-w-4xl mx-auto" : ""}`}>
-            {filteredListings.map((listing, index) => (
-              <Link
-                key={listing.id}
-                href={`/listing/${listing.id}`}
-                className="group flex flex-col sm:flex-row bg-white rounded-[var(--radius-card)] overflow-hidden card-lift animate-fade-in-up"
-                style={{
-                  boxShadow: hoveredListing === listing.id ? "var(--shadow-card-hover)" : "var(--shadow-card)",
-                  animationDelay: `${index * 60}ms`,
-                  transform: hoveredListing === listing.id ? "translateY(-2px)" : undefined,
-                }}
-                onMouseEnter={() => setHoveredListing(listing.id)}
-                onMouseLeave={() => setHoveredListing(null)}
-              >
-                {/* Photo */}
-                <div className="relative sm:w-52 h-44 sm:h-auto shrink-0 bg-surface-muted overflow-hidden">
-                  <img
-                    src={listing.photos[0]}
-                    alt={listing.name}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                  />
-                  <div className="absolute top-3 left-3 px-2 py-0.5 rounded-lg glass text-xs font-bold text-text-primary">
-                    ${listing.pricePerHour}/hr
+            {isLoading && (
+              Array.from({ length: 5 }).map((_, i) => (
+                <div
+                  key={`skeleton-${i}`}
+                  className="bg-white rounded-card overflow-hidden border border-border-light"
+                  style={{ boxShadow: "var(--shadow-card)" }}
+                >
+                  <div className="flex flex-col sm:flex-row">
+                    <div className="sm:w-52 h-44 sm:h-auto skeleton" />
+                    <div className="flex-1 p-4 sm:p-5 space-y-3">
+                      <div className="h-4 w-2/3 skeleton rounded" />
+                      <div className="h-3 w-1/3 skeleton rounded" />
+                      <div className="flex gap-2">
+                        <div className="h-6 w-16 skeleton rounded-full" />
+                        <div className="h-6 w-20 skeleton rounded-full" />
+                        <div className="h-6 w-14 skeleton rounded-full" />
+                      </div>
+                      <div className="h-2 w-32 skeleton rounded" />
+                    </div>
                   </div>
                 </div>
+              ))
+            )}
 
-                {/* Info */}
-                <div className="flex-1 p-4 sm:p-5 flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-start justify-between gap-2 mb-1">
-                      <h3 className="text-base font-bold text-text-primary group-hover:text-brand-600 transition-colors">
-                        {listing.name}
-                      </h3>
-                      <div className="flex items-center gap-1 shrink-0">
-                        <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
-                        <span className="text-sm font-semibold">{listing.rating}</span>
-                        <span className="text-xs text-text-muted">({listing.reviewCount})</span>
-                      </div>
+            {!isLoading && error && (
+              <div className="bg-white rounded-card border border-border-light p-8 text-center" style={{ boxShadow: "var(--shadow-card)" }}>
+                <div className="text-sm font-semibold text-text-primary mb-2">Unable to load listings</div>
+                <p className="text-sm text-text-muted mb-4">{error}</p>
+                <button
+                  onClick={() => window.location.reload()}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-button transition-colors"
+                  style={{ boxShadow: "var(--shadow-button)" }}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {!isLoading && !error && filteredListings.length === 0 && (
+              <div className="bg-white rounded-card border border-border-light p-8 text-center" style={{ boxShadow: "var(--shadow-card)" }}>
+                <div className="text-sm font-semibold text-text-primary mb-2">No results match your filters</div>
+                <p className="text-sm text-text-muted mb-4">Try clearing a filter or raising your price cap.</p>
+                <button
+                  onClick={() => setActiveFilters([])}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-button transition-colors"
+                  style={{ boxShadow: "var(--shadow-button)" }}
+                >
+                  Clear filters
+                </button>
+              </div>
+            )}
+
+            {!isLoading && !error && filteredListings.length > 0 && (
+              filteredListings.map((listing, index) => (
+                <Link
+                  key={listing.id}
+                  href={`/listing/${listing.id}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    router.push(`/listing/${listing.id}`);
+                  }}
+                  className="group flex flex-col sm:flex-row bg-white rounded-card overflow-hidden card-lift animate-fade-in-up"
+                  style={{
+                    boxShadow: hoveredListing === listing.id ? "var(--shadow-card-hover)" : "var(--shadow-card)",
+                    animationDelay: `${index * 60}ms`,
+                    transform: hoveredListing === listing.id ? "translateY(-2px)" : undefined,
+                  }}
+                  onMouseEnter={() => setHoveredListing(listing.id)}
+                  onMouseLeave={() => setHoveredListing(null)}
+                >
+                  <div className="relative sm:w-52 h-44 sm:h-auto shrink-0 bg-surface-muted overflow-hidden">
+                    <Image
+                      src={listing.photos[0]}
+                      alt={listing.name}
+                      fill
+                      sizes="(min-width: 640px) 208px, 100vw"
+                      className="object-cover group-hover:scale-105 transition-transform duration-500"
+                    />
+                    <div className="absolute top-3 left-3 px-2 py-0.5 rounded-lg glass text-xs font-bold text-text-primary">
+                      ${listing.pricePerHour}/hr
                     </div>
-                    <p className="text-sm text-text-muted">
-                      {listing.neighborhood} &middot; {listing.distance}
-                    </p>
+                  </div>
+
+                  <div className="flex-1 p-4 sm:p-5 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <h3 className="text-base font-bold text-text-primary group-hover:text-brand-600 transition-colors">
+                          {listing.name}
+                        </h3>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
+                          <span className="text-sm font-semibold">{listing.rating}</span>
+                          <span className="text-xs text-text-muted">({listing.reviewCount})</span>
+                        </div>
+                      </div>
+                      <p className="text-sm text-text-muted">
+                        {listing.neighborhood} &middot; {listing.distance}
+                      </p>
+                    </div>
 
                     <div className="flex flex-wrap gap-1.5 mt-3">
                       {listing.perks.slice(0, 5).map((perk) => (
                         <span
                           key={perk}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[var(--radius-chip)] bg-surface-muted text-xs font-medium text-text-secondary"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-chip bg-surface-muted text-xs font-medium text-text-secondary"
                         >
                           {perkIconMap[perk]}
                           {perk}
@@ -264,18 +411,8 @@ export default function SearchPage() {
                       View &rarr;
                     </span>
                   </div>
-                </div>
-              </Link>
-            ))}
-
-            {filteredListings.length === 0 && (
-              <div className="text-center py-20">
-                <div className="w-16 h-16 rounded-2xl bg-surface-muted flex items-center justify-center mx-auto mb-4">
-                  <MapPin className="w-7 h-7 text-text-muted" />
-                </div>
-                <h3 className="text-lg font-bold text-text-primary mb-1">No desks match that filter</h3>
-                <p className="text-sm text-text-secondary">Try adjusting the price range or removing some filters.</p>
-              </div>
+                </Link>
+              ))
             )}
           </div>
         </div>
@@ -294,6 +431,8 @@ export default function SearchPage() {
             listings={filteredListings}
             hoveredId={hoveredListing}
             onHover={setHoveredListing}
+            centerOverride={centerOverride}
+            zoomOverride={zoomOverride}
           />
         </div>
       </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
@@ -23,8 +23,10 @@ import {
   MessageSquare,
   QrCode,
   CalendarCheck,
+  Lock,
+  Phone,
 } from "lucide-react";
-import { listings, desks, zones, amenities, type Desk } from "@/data/mock";
+import type { Listing, Workspace, WorkspaceFloor } from "@/lib/types";
 
 const perkIconSmall: Record<string, React.ReactNode> = {
   Outlet: <Plug className="w-3.5 h-3.5" />,
@@ -39,17 +41,36 @@ const zoneColors: Record<string, { bg: string; border: string; text: string; lab
   calls: { bg: "rgba(234,179,8,0.06)", border: "#eab308", text: "text-yellow-600", label: "Calls Corner" },
 };
 
+const zoneIcons: Record<string, React.ReactNode> = {
+  quiet: <VolumeX className="w-3 h-3" />,
+  collab: <MessageSquare className="w-3 h-3" />,
+  calls: <Phone className="w-3 h-3" />,
+};
+
+type DeskItem = WorkspaceFloor["desks"][number];
+type ZoneItem = WorkspaceFloor["zones"][number];
+type AmenityItem = WorkspaceFloor["amenities"][number];
+
 export default function DeskMapPage() {
   const params = useParams();
-  const listing = listings.find((l) => l.id === params.id) || listings[0];
+  const listingId = Array.isArray(params?.id) ? params.id[0] : params?.id;
+  const [listing, setListing] = useState<Listing | null>(null);
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [activeFloorId, setActiveFloorId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [legalAccepted, setLegalAccepted] = useState(false);
 
-  const [selectedDesk, setSelectedDesk] = useState<Desk | null>(null);
+  const [selectedDesk, setSelectedDesk] = useState<DeskItem | null>(null);
   const [zoom, setZoom] = useState(1);
   const [viewMode, setViewMode] = useState<"map" | "list">("map");
   const [workMode, setWorkMode] = useState<"focus" | "social" | null>(null);
   const [booked, setBooked] = useState(false);
   const [deskFilter, setDeskFilter] = useState<string[]>([]);
   const [mobileSheet, setMobileSheet] = useState<"collapsed" | "peek" | "full">("collapsed");
+  const [bookingError, setBookingError] = useState<string | null>(null);
+  const [bookingStatus, setBookingStatus] = useState<string | null>(null);
 
   const handleZoomIn = () => setZoom((z) => Math.min(z + 0.15, 1.8));
   const handleZoomOut = () => setZoom((z) => Math.max(z - 0.15, 0.6));
@@ -58,6 +79,11 @@ export default function DeskMapPage() {
   const toggleDeskFilter = (f: string) => {
     setDeskFilter((prev) => (prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]));
   };
+
+  const activeFloor = workspace?.floors.find((f) => f.id === activeFloorId) || workspace?.floors[0];
+  const desks = activeFloor?.desks || [];
+  const zones = activeFloor?.zones || [];
+  const amenities = activeFloor?.amenities || [];
 
   const getFilteredDesks = useCallback(() => {
     let filtered = desks;
@@ -68,19 +94,51 @@ export default function DeskMapPage() {
     if (deskFilter.includes("Extra monitor")) filtered = filtered.filter((d) => d.perks.includes("Monitor"));
     if (deskFilter.includes("Quiet zone")) filtered = filtered.filter((d) => d.zone === "quiet");
     return filtered;
-  }, [workMode, deskFilter]);
+  }, [workMode, deskFilter, desks]);
 
   const filteredDesks = getFilteredDesks();
   const highlightedDeskIds = new Set(filteredDesks.map((d) => d.id));
 
-  const handleBookDesk = () => {
-    if (selectedDesk && selectedDesk.available) {
+  const handleBookDesk = async () => {
+    if (!selectedDesk || !selectedDesk.available || !listing) return;
+    if (!userEmail) {
+      setBookingError("Please log in to book a desk.");
+      return;
+    }
+    if (listing?.mode === "MICRO_HOST" && !legalAccepted) {
+      setBookingError("Please accept the house rules and liability terms to continue.");
+      return;
+    }
+    setBookingError(null);
+    try {
+      if (listing?.mode === "MICRO_HOST" && legalAccepted) {
+        await fetch("/api/legal/accept", { method: "POST" });
+      }
+      const duration = "2h";
+      const totalPrice = listing && listing.paidEnabled === false ? 0 : listing ? listing.pricePerHour * 2 : 0;
+      const res = await fetch("/api/bookings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          listingId: listing.id,
+          deskLabel: selectedDesk.label,
+          date: "Today",
+          time: "Now",
+          duration,
+          totalPrice,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Booking failed");
+      setBookingStatus(data.booking?.status || "upcoming");
       setBooked(true);
       setMobileSheet("full");
+    } catch (err) {
+      setBookingError((err as Error).message);
     }
   };
 
-  const handleSelectDesk = (desk: Desk) => {
+  const handleSelectDesk = (desk: DeskItem) => {
     if (!booked) {
       setSelectedDesk(desk);
       setMobileSheet("peek");
@@ -94,11 +152,129 @@ export default function DeskMapPage() {
 
   const checkInCode = `FD-${Math.floor(1000 + Math.random() * 9000)}`;
 
+  useEffect(() => {
+    let isMounted = true;
+    async function load() {
+      if (!listingId) {
+        setError("Invalid listing");
+        setIsLoading(false);
+        return;
+      }
+      try {
+        setIsLoading(true);
+        const [listingRes, workspaceRes, meRes] = await Promise.all([
+          fetch(`/api/listings/${listingId}`),
+          fetch(`/api/workspaces/by-listing/${listingId}`),
+          fetch("/api/auth/me"),
+        ]);
+        if (!listingRes.ok) throw new Error("Listing not found");
+        const listingData = await listingRes.json();
+        const workspaceData = workspaceRes.ok ? await workspaceRes.json() : { workspace: null };
+        const meData = meRes.ok ? await meRes.json() : { user: null };
+        if (isMounted) {
+          setListing(listingData.listing);
+          setWorkspace(workspaceData.workspace || null);
+          setActiveFloorId(workspaceData.workspace?.floors?.[0]?.id || null);
+          setUserEmail(meData.user?.email || null);
+          const accepted = Boolean(meData.user?.acceptedTermsAt && meData.user?.acceptedLiabilityAt);
+          setLegalAccepted(accepted);
+          setError(null);
+        }
+      } catch (err) {
+        if (isMounted) setError((err as Error).message);
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    }
+    load();
+    return () => {
+      isMounted = false;
+    };
+  }, [listingId]);
+
+  if (isLoading || !listing) {
+    return (
+      <div className="h-[calc(100vh-64px)] flex items-center justify-center bg-surface-muted">
+        <div className="text-sm text-text-muted">Loading desk map...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="h-[calc(100vh-64px)] flex items-center justify-center bg-surface-muted">
+        <div className="text-center">
+          <div className="text-sm font-semibold text-text-primary mb-2">Unable to load desk map</div>
+          <p className="text-xs text-text-muted">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!workspace) {
+    return (
+      <div className="h-[calc(100vh-64px)] flex items-center justify-center bg-surface-muted">
+        <div className="text-center">
+          <div className="text-sm font-semibold text-text-primary mb-2">No desk map yet</div>
+          <p className="text-xs text-text-muted mb-4">This workspace hasn’t published a floor plan.</p>
+          <Link
+            href="/host"
+            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-button transition-colors"
+            style={{ boxShadow: "var(--shadow-button)" }}
+          >
+            Build a desk map
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (listing.allowedEmails?.length) {
+    const allowed = userEmail && listing.allowedEmails.map((e) => e.toLowerCase()).includes(userEmail.toLowerCase());
+    if (!allowed) {
+      return (
+        <div className="h-[calc(100vh-64px)] flex items-center justify-center bg-blueprint px-4">
+          <div className="w-full max-w-md bg-white rounded-card border border-border-light p-6 text-center" style={{ boxShadow: "var(--shadow-card)" }}>
+            <div className="w-12 h-12 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center mx-auto mb-4">
+              <Lock className="w-5 h-5" />
+            </div>
+            <div className="text-base font-bold text-text-primary mb-1">Access restricted</div>
+            <p className="text-sm text-text-secondary mb-4">
+              This floor plan is private. Ask the workspace admin to approve your email.
+            </p>
+            <div className="text-left text-xs text-text-muted bg-surface-muted rounded-lg p-3 mb-4">
+              <p className="font-semibold text-text-secondary mb-1">How to get access</p>
+              <ul className="list-disc list-inside space-y-1">
+                <li>Use your approved work email</li>
+                <li>Ask the host to add you to the allowlist</li>
+              </ul>
+            </div>
+            <div className="flex gap-2 justify-center">
+              <Link
+                href="/"
+                className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-button transition-colors"
+                style={{ boxShadow: "var(--shadow-button)" }}
+              >
+                Back home
+              </Link>
+              <Link
+                href="/search"
+                className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-text-primary border border-border-light hover:bg-surface-muted rounded-button transition-colors"
+              >
+                Browse spaces
+              </Link>
+            </div>
+          </div>
+        </div>
+      );
+    }
+  }
+
   return (
     <div className="h-[calc(100vh-64px)] flex flex-col bg-surface-muted">
       {/* ===== TOP BAR ===== */}
       <div className="bg-white border-b border-border-light px-4 sm:px-6 py-3 shrink-0">
-        <div className="max-w-[1600px] mx-auto flex items-center justify-between gap-4">
+        <div className="max-w-400 mx-auto flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <Link
               href={`/listing/${listing.id}`}
@@ -111,6 +287,27 @@ export default function DeskMapPage() {
             <h1 className="text-sm font-bold text-text-primary truncate">{listing.name}</h1>
             <span className="text-xs text-text-muted hidden sm:inline">Today, 2h</span>
           </div>
+
+          {workspace?.floors?.length ? (
+            <div className="hidden md:flex items-center gap-2">
+              <span className="text-xs font-semibold text-text-muted">Floor</span>
+              <div className="flex items-center gap-1 bg-surface-muted rounded-xl p-1">
+                {workspace.floors.map((floor) => (
+                  <button
+                    key={floor.id}
+                    onClick={() => setActiveFloorId(floor.id)}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                      activeFloorId === floor.id
+                        ? "bg-white text-text-primary shadow-sm"
+                        : "text-text-muted hover:text-text-secondary"
+                    }`}
+                  >
+                    {floor.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           <div className="hidden sm:flex items-center gap-4">
             <div className="flex items-center gap-1.5">
@@ -202,7 +399,7 @@ export default function DeskMapPage() {
           {/* Desk list */}
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
             {booked && selectedDesk && (
-              <div className="p-3 rounded-[var(--radius-card)] bg-brand-50 border border-brand-200 mb-3">
+              <div className="p-3 rounded-card bg-brand-50 border border-brand-200 mb-3">
                 <div className="flex items-center gap-2 mb-1">
                   <Check className="w-4 h-4 text-brand-600" />
                   <span className="text-sm font-bold text-brand-700">Your desk: {selectedDesk.label}</span>
@@ -215,7 +412,7 @@ export default function DeskMapPage() {
               <button
                 key={desk.id}
                 onClick={() => handleSelectDesk(desk)}
-                className={`w-full text-left p-3 rounded-[var(--radius-card)] border transition-all ${
+                className={`w-full text-left p-3 rounded-card border transition-all ${
                   selectedDesk?.id === desk.id
                     ? booked ? "border-brand-600 bg-brand-50" : "border-brand-400 bg-brand-50"
                     : desk.available
@@ -282,17 +479,25 @@ export default function DeskMapPage() {
                     (workMode === "focus" && zone.type !== "quiet") ||
                     (workMode === "social" && zone.type !== "collab")
                   );
+                  const rotation = zone.rotation ?? 0;
+                  const zoneCx = zone.x + zone.width / 2;
+                  const zoneCy = zone.y + zone.height / 2;
                   return (
-                    <g key={zone.id} opacity={dimmed ? 0.25 : 1} className="transition-opacity duration-300">
+                    <g key={zone.id} opacity={dimmed ? 0.25 : 1} className="transition-opacity duration-300" transform={`rotate(${rotation} ${zoneCx} ${zoneCy})`}>
                       <rect x={zone.x} y={zone.y} width={zone.width} height={zone.height} rx="12" fill={zc.bg} stroke={zc.border} strokeWidth="1.5" strokeDasharray="6 3" />
-                      <text x={zone.x + 12} y={zone.y + 24} fontSize="11" fontWeight="600" fill={zc.border} opacity={0.8}>{zone.name}</text>
+                      <g transform={`translate(${zone.x + 12}, ${zone.y + 14})`}>
+                        <foreignObject width="16" height="16">
+                          <div className="text-[10px]" style={{ color: zc.border }}>{zoneIcons[zone.type]}</div>
+                        </foreignObject>
+                      </g>
+                      <text x={zone.x + 32} y={zone.y + 24} fontSize="11" fontWeight="600" fill={zc.border} opacity={0.8}>{zone.name}</text>
                     </g>
                   );
                 })}
 
                 {/* Amenities */}
                 {amenities.map((am) => (
-                  <g key={am.id}>
+                  <g key={am.id} transform={`rotate(${am.rotation ?? 0} ${am.x} ${am.y})`}>
                     <circle cx={am.x} cy={am.y} r="14" fill="#f8fafc" stroke="#e2e8f0" strokeWidth="1" />
                     <text x={am.x} y={am.y + 4} textAnchor="middle" fontSize="10" fill="#94a3b8">
                       {am.type === "coffee" ? "\u2615" : am.type === "printer" ? "\u2399" : am.type === "window" ? "\u2600" : "\u25A1"}
@@ -306,18 +511,23 @@ export default function DeskMapPage() {
                   const isHighlighted = highlightedDeskIds.has(desk.id);
                   const isBooked = booked && isSelected;
                   const dimmed = !isHighlighted && (deskFilter.length > 0 || workMode);
+                  const isTable = (desk as { kind?: string }).kind === "table";
+                  const rotation = desk.rotation ?? 0;
+                  const deskCx = desk.x + desk.width / 2;
+                  const deskCy = desk.y + desk.height / 2;
 
                   return (
                     <g
                       key={desk.id}
+                      transform={`rotate(${rotation} ${deskCx} ${deskCy})`}
                       onClick={() => handleSelectDesk(desk)}
                       className={`${desk.available && !booked ? "cursor-pointer" : ""}`}
                       opacity={dimmed ? 0.25 : 1}
                     >
                       <rect
                         x={desk.x} y={desk.y} width={desk.width} height={desk.height} rx="8"
-                        fill={isBooked ? "#2563eb" : isSelected ? "#dbeafe" : desk.available ? "#f0fdf4" : "#f1f5f9"}
-                        stroke={isBooked ? "#1d4ed8" : isSelected ? "#3b82f6" : desk.available ? "#86efac" : "#cbd5e1"}
+                        fill={isBooked ? "#2563eb" : isSelected ? "#dbeafe" : desk.available ? (isTable ? "#fff7ed" : "#f0fdf4") : "#f1f5f9"}
+                        stroke={isBooked ? "#1d4ed8" : isSelected ? "#3b82f6" : desk.available ? (isTable ? "#fb923c" : "#86efac") : "#cbd5e1"}
                         strokeWidth={isSelected || isBooked ? "2" : "1"}
                       />
                       <text
@@ -325,7 +535,7 @@ export default function DeskMapPage() {
                         textAnchor="middle" fontSize="10" fontWeight={isBooked ? "700" : "600"}
                         fill={isBooked ? "white" : desk.available ? "#166534" : "#94a3b8"}
                       >
-                        {desk.label}
+                        {desk.label}{isTable ? " (Table)" : ""}
                       </text>
                       {desk.perks.length > 0 && (
                         <g>
@@ -355,7 +565,7 @@ export default function DeskMapPage() {
 
             {/* Desktop info panel */}
             {selectedDesk && !booked && (
-              <div className="hidden sm:block absolute bottom-4 left-1/2 -translate-x-1/2 w-96 max-w-[calc(100%-32px)] bg-white rounded-[var(--radius-card)] border border-border-light p-5 animate-fade-in-up z-10" style={{ boxShadow: "var(--shadow-elevated)" }}>
+              <div className="hidden sm:block absolute bottom-4 left-1/2 -translate-x-1/2 w-96 max-w-[calc(100%-32px)] bg-white rounded-card border border-border-light p-5 animate-fade-in-up z-10" style={{ boxShadow: "var(--shadow-elevated)" }}>
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <h3 className="text-base font-bold text-text-primary">{selectedDesk.label}</h3>
@@ -371,8 +581,43 @@ export default function DeskMapPage() {
                 {selectedDesk.whyLike && (
                   <p className="text-xs text-brand-600 bg-brand-50 px-3 py-2 rounded-lg mb-3 font-medium">{selectedDesk.whyLike}</p>
                 )}
+                {listing.mode === "MICRO_HOST" && (
+                  <div className="mb-3 rounded-lg border border-border-light bg-surface-muted p-3">
+                    <p className="text-xs font-semibold text-text-primary mb-2">House rules</p>
+                    <ul className="space-y-1 text-xs text-text-secondary">
+                      {(listing.houseRules || []).map((rule) => (
+                        <li key={rule}>• {rule}</li>
+                      ))}
+                      {(listing.houseRules || []).length === 0 && (
+                        <li>• Respect the space and keep noise low.</li>
+                      )}
+                    </ul>
+                    <label className="mt-3 flex items-start gap-2 text-xs text-text-secondary">
+                      <input
+                        type="checkbox"
+                        checked={legalAccepted}
+                        onChange={(e) => setLegalAccepted(e.target.checked)}
+                        className="mt-0.5"
+                      />
+                      I agree to the house rules and liability terms.
+                    </label>
+                  </div>
+                )}
+                {bookingError && (
+                  <p className="text-xs text-red-500 mb-2">{bookingError}</p>
+                )}
                 {selectedDesk.available ? (
-                  <button onClick={handleBookDesk} className="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-[var(--radius-button)] btn-press transition-colors">Book this desk</button>
+                  <button
+                    onClick={handleBookDesk}
+                    disabled={!userEmail || (listing.mode === "MICRO_HOST" && !legalAccepted)}
+                    className={`w-full py-3 text-white font-bold rounded-button btn-press transition-colors ${
+                      !userEmail || (listing.mode === "MICRO_HOST" && !legalAccepted)
+                        ? "bg-brand-300 cursor-not-allowed"
+                        : "bg-brand-600 hover:bg-brand-700"
+                    }`}
+                  >
+                    {userEmail ? "Book this desk" : "Log in to book"}
+                  </button>
                 ) : (
                   <div>
                     <p className="text-sm text-red-500 font-medium mb-2">This desk is taken for your time.</p>
@@ -389,17 +634,25 @@ export default function DeskMapPage() {
 
             {/* Desktop booked confirmation */}
             {booked && (
-              <div className="hidden sm:block absolute bottom-4 left-1/2 -translate-x-1/2 w-96 bg-white rounded-[var(--radius-card)] p-6 text-center animate-fade-in-up z-10" style={{ boxShadow: "var(--shadow-elevated)" }}>
+              <div className="hidden sm:block absolute bottom-4 left-1/2 -translate-x-1/2 w-96 bg-white rounded-card p-6 text-center animate-fade-in-up z-10" style={{ boxShadow: "var(--shadow-elevated)" }}>
                 <div className="w-14 h-14 rounded-full bg-green-50 flex items-center justify-center mx-auto mb-3">
                   <Check className="w-7 h-7 text-green-600" />
                 </div>
-                <h3 className="text-lg font-bold text-text-primary mb-1">You&apos;re booked!</h3>
-                <p className="text-sm text-text-secondary mb-4">Desk {selectedDesk?.label} is yours. Go build.</p>
-                <div className="bg-surface-muted rounded-2xl p-4 mb-4">
-                  <QrCode className="w-8 h-8 text-brand-600 mx-auto mb-1" />
-                  <p className="text-xs text-text-muted">Check-in code</p>
-                  <p className="text-xl font-bold text-text-primary tracking-wider font-mono">{checkInCode}</p>
-                </div>
+                <h3 className="text-lg font-bold text-text-primary mb-1">
+                  {bookingStatus === "pending" ? "Awaiting approval" : "You&apos;re booked!"}
+                </h3>
+                <p className="text-sm text-text-secondary mb-4">
+                  {bookingStatus === "pending"
+                    ? "The host will review your request shortly."
+                    : `Desk ${selectedDesk?.label} is yours. Go build.`}
+                </p>
+                {bookingStatus !== "pending" && (
+                  <div className="bg-surface-muted rounded-2xl p-4 mb-4">
+                    <QrCode className="w-8 h-8 text-brand-600 mx-auto mb-1" />
+                    <p className="text-xs text-text-muted">Check-in code</p>
+                    <p className="text-xl font-bold text-text-primary tracking-wider font-mono">{checkInCode}</p>
+                  </div>
+                )}
                 <div className="flex gap-3">
                   <Link href="/bookings" className="flex-1 py-2.5 bg-brand-600 text-white text-sm font-bold rounded-xl btn-press hover:bg-brand-700 transition-colors flex items-center justify-center gap-1.5">
                     <CalendarCheck className="w-4 h-4" /> My bookings
@@ -421,7 +674,7 @@ export default function DeskMapPage() {
                 <button
                   key={desk.id}
                   onClick={() => handleSelectDesk(desk)}
-                  className={`w-full text-left p-4 rounded-[var(--radius-card)] border bg-white transition-all ${
+                  className={`w-full text-left p-4 rounded-card border bg-white transition-all ${
                     selectedDesk?.id === desk.id ? "border-brand-400 bg-brand-50" : desk.available ? "border-border-light hover:border-brand-300" : "opacity-60 border-border-light"
                   }`}
                   style={{ boxShadow: "var(--shadow-card)" }}
@@ -449,8 +702,8 @@ export default function DeskMapPage() {
 
         {/* ===== MOBILE BOTTOM SHEET ===== */}
         <div
-          className={`sm:hidden fixed bottom-0 left-0 right-0 bg-white rounded-t-[24px] z-20 transition-all duration-300 ease-out ${
-            mobileSheet === "full" ? "h-[75vh]" : mobileSheet === "peek" ? "h-[280px]" : "h-[100px]"
+          className={`sm:hidden fixed bottom-0 left-0 right-0 bg-white rounded-t-3xl z-20 transition-all duration-300 ease-out ${
+            mobileSheet === "full" ? "h-[75vh]" : mobileSheet === "peek" ? "h-70" : "h-25"
           }`}
           style={{ boxShadow: "0 -4px 30px rgba(0,0,0,0.1)" }}
         >
@@ -503,9 +756,42 @@ export default function DeskMapPage() {
                 {selectedDesk.whyLike && (
                   <p className="text-xs text-brand-600 bg-brand-50 px-3 py-2 rounded-lg mb-3 font-medium">{selectedDesk.whyLike}</p>
                 )}
+                {listing.mode === "MICRO_HOST" && (
+                  <div className="mb-3 rounded-lg border border-border-light bg-surface-muted p-3">
+                    <p className="text-xs font-semibold text-text-primary mb-2">House rules</p>
+                    <ul className="space-y-1 text-xs text-text-secondary">
+                      {(listing.houseRules || []).map((rule) => (
+                        <li key={rule}>• {rule}</li>
+                      ))}
+                      {(listing.houseRules || []).length === 0 && (
+                        <li>• Respect the space and keep noise low.</li>
+                      )}
+                    </ul>
+                    <label className="mt-3 flex items-start gap-2 text-xs text-text-secondary">
+                      <input
+                        type="checkbox"
+                        checked={legalAccepted}
+                        onChange={(e) => setLegalAccepted(e.target.checked)}
+                        className="mt-0.5"
+                      />
+                      I agree to the house rules and liability terms.
+                    </label>
+                  </div>
+                )}
+                {bookingError && (
+                  <p className="text-xs text-red-500 mb-2">{bookingError}</p>
+                )}
                 {selectedDesk.available ? (
-                  <button onClick={handleBookDesk} className="w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-[var(--radius-button)] btn-press transition-colors text-base">
-                    Book this desk
+                  <button
+                    onClick={handleBookDesk}
+                    disabled={!userEmail || (listing.mode === "MICRO_HOST" && !legalAccepted)}
+                    className={`w-full py-3.5 text-white font-bold rounded-button btn-press transition-colors text-base ${
+                      !userEmail || (listing.mode === "MICRO_HOST" && !legalAccepted)
+                        ? "bg-brand-300 cursor-not-allowed"
+                        : "bg-brand-600 hover:bg-brand-700"
+                    }`}
+                  >
+                    {userEmail ? "Book this desk" : "Log in to book"}
                   </button>
                 ) : (
                   <div>

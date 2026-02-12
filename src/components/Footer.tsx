@@ -25,25 +25,25 @@ export default function Footer() {
             <ul className="space-y-2">
               <li><Link href="/search" className="text-sm text-text-muted hover:text-text-primary transition-colors">Find a Desk</Link></li>
               <li><Link href="/host" className="text-sm text-text-muted hover:text-text-primary transition-colors">List Your Desk</Link></li>
-              <li><Link href="/search" className="text-sm text-text-muted hover:text-text-primary transition-colors">Pricing</Link></li>
+              <li><Link href="/pricing" className="text-sm text-text-muted hover:text-text-primary transition-colors">Pricing</Link></li>
             </ul>
           </div>
 
           <div>
             <h4 className="text-sm font-semibold text-text-primary mb-3">Company</h4>
             <ul className="space-y-2">
-              <li><Link href="/" className="text-sm text-text-muted hover:text-text-primary transition-colors">About</Link></li>
-              <li><Link href="/" className="text-sm text-text-muted hover:text-text-primary transition-colors">Blog</Link></li>
-              <li><Link href="/" className="text-sm text-text-muted hover:text-text-primary transition-colors">Careers</Link></li>
+              <li><Link href="/about" className="text-sm text-text-muted hover:text-text-primary transition-colors">About</Link></li>
+              <li><Link href="/blog" className="text-sm text-text-muted hover:text-text-primary transition-colors">Blog</Link></li>
+              <li><Link href="/careers" className="text-sm text-text-muted hover:text-text-primary transition-colors">Careers</Link></li>
             </ul>
           </div>
 
           <div>
             <h4 className="text-sm font-semibold text-text-primary mb-3">Support</h4>
             <ul className="space-y-2">
-              <li><Link href="/" className="text-sm text-text-muted hover:text-text-primary transition-colors">Help Center</Link></li>
-              <li><Link href="/" className="text-sm text-text-muted hover:text-text-primary transition-colors">Contact</Link></li>
-              <li><Link href="/" className="text-sm text-text-muted hover:text-text-primary transition-colors">Privacy</Link></li>
+              <li><Link href="/help" className="text-sm text-text-muted hover:text-text-primary transition-colors">Help Center</Link></li>
+              <li><Link href="/contact" className="text-sm text-text-muted hover:text-text-primary transition-colors">Contact</Link></li>
+              <li><Link href="/privacy" className="text-sm text-text-muted hover:text-text-primary transition-colors">Privacy</Link></li>
             </ul>
           </div>
         </div>
@@ -51,9 +51,9 @@ export default function Footer() {
         <div className="border-t border-border-light mt-10 pt-6 flex flex-col sm:flex-row items-center justify-between gap-3">
           <p className="text-xs text-text-muted">&copy; 2026 FlexDesk. All rights reserved.</p>
           <div className="flex items-center gap-4">
-            <Link href="/" className="text-xs text-text-muted hover:text-text-primary transition-colors">Terms</Link>
-            <Link href="/" className="text-xs text-text-muted hover:text-text-primary transition-colors">Privacy</Link>
-            <Link href="/" className="text-xs text-text-muted hover:text-text-primary transition-colors">Cookies</Link>
+            <Link href="/terms" className="text-xs text-text-muted hover:text-text-primary transition-colors">Terms</Link>
+            <Link href="/privacy" className="text-xs text-text-muted hover:text-text-primary transition-colors">Privacy</Link>
+            <Link href="/cookies" className="text-xs text-text-muted hover:text-text-primary transition-colors">Cookies</Link>
           </div>
         </div>
       </div>

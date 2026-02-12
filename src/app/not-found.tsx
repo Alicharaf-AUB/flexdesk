@@ -18,7 +18,7 @@ export default function NotFound() {
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
           <Link
             href="/search"
-            className="flex items-center gap-2 px-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-[14px] transition-colors"
+            className="flex items-center gap-2 px-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-button transition-colors"
             style={{ boxShadow: "0 1px 2px rgba(15, 23, 42, 0.05)" }}
           >
             <Search className="w-4 h-4" />
@@ -26,7 +26,7 @@ export default function NotFound() {
           </Link>
           <Link
             href="/"
-            className="flex items-center gap-2 px-6 py-3 border border-[#e2e8f0] text-[#0f172a] font-semibold rounded-[14px] hover:bg-[#f1f5f9] transition-colors"
+            className="flex items-center gap-2 px-6 py-3 border border-border-light text-text-primary font-semibold rounded-button hover:bg-surface-muted transition-colors"
           >
             Go home
             <ArrowRight className="w-4 h-4" />

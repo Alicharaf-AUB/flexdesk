@@ -1,25 +1,37 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { MapPin, Menu, X, Plus, CalendarCheck } from "lucide-react";
-import AuthModal from "./AuthModal";
 
 export default function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [authOpen, setAuthOpen] = useState(false);
-  const [authTab, setAuthTab] = useState<"login" | "signup">("login");
+  const [user, setUser] = useState<{ id: string; email: string; name?: string | null } | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
 
-  const openLogin = () => {
-    setAuthTab("login");
-    setAuthOpen(true);
-    setMobileOpen(false);
+  const loadUser = async () => {
+    try {
+      setAuthLoading(true);
+      const res = await fetch("/api/auth/me");
+      const data = await res.json();
+      setUser(data.user || null);
+    } catch {
+      setUser(null);
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
-  const openSignup = () => {
-    setAuthTab("signup");
-    setAuthOpen(true);
-    setMobileOpen(false);
+  useEffect(() => {
+    loadUser();
+    const handler = () => loadUser();
+    window.addEventListener("auth:changed", handler);
+    return () => window.removeEventListener("auth:changed", handler);
+  }, []);
+
+  const handleLogout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
+    window.dispatchEvent(new Event("auth:changed"));
   };
 
   return (
@@ -60,19 +72,35 @@ export default function Navbar() {
                 My Bookings
               </Link>
               <div className="w-px h-6 bg-border-light mx-1" />
-              <button
-                onClick={openLogin}
-                className="px-4 py-2 text-sm font-medium text-text-secondary hover:text-text-primary rounded-xl hover:bg-surface-muted transition-colors"
-              >
-                Log in
-              </button>
-              <button
-                onClick={openSignup}
-                className="px-5 py-2.5 text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-[var(--radius-button)] btn-press transition-colors"
-                style={{ boxShadow: "var(--shadow-button)" }}
-              >
-                Sign up
-              </button>
+              {authLoading ? null : user ? (
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-medium text-text-secondary">
+                    Hi, {user.name || user.email}
+                  </span>
+                  <button
+                    onClick={handleLogout}
+                    className="px-4 py-2 text-sm font-medium text-text-secondary hover:text-text-primary rounded-xl hover:bg-surface-muted transition-colors"
+                  >
+                    Log out
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <Link
+                    href="/login"
+                    className="px-4 py-2 text-sm font-medium text-text-secondary hover:text-text-primary rounded-xl hover:bg-surface-muted transition-colors"
+                  >
+                    Log in
+                  </Link>
+                  <Link
+                    href="/signup"
+                    className="px-5 py-2.5 text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-button btn-press transition-colors"
+                    style={{ boxShadow: "var(--shadow-button)" }}
+                  >
+                    Sign up
+                  </Link>
+                </>
+              )}
             </div>
 
             {/* Mobile menu button */}
@@ -98,17 +126,34 @@ export default function Navbar() {
               My Bookings
             </Link>
             <div className="border-t border-border-light my-2" />
-            <button onClick={openLogin} className="block w-full text-left px-4 py-3 text-sm font-medium text-text-secondary rounded-xl hover:bg-surface-muted">
-              Log in
-            </button>
-            <button onClick={openSignup} className="block w-full text-left px-4 py-3 text-sm font-semibold text-white bg-brand-600 rounded-xl text-center">
-              Sign up
-            </button>
+            {authLoading ? null : user ? (
+              <>
+                <div className="px-4 py-2 text-sm font-medium text-text-secondary">Hi, {user.name || user.email}</div>
+                <button onClick={handleLogout} className="block w-full text-left px-4 py-3 text-sm font-medium text-text-secondary rounded-xl hover:bg-surface-muted">
+                  Log out
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  className="block w-full text-left px-4 py-3 text-sm font-medium text-text-secondary rounded-xl hover:bg-surface-muted"
+                  onClick={() => setMobileOpen(false)}
+                >
+                  Log in
+                </Link>
+                <Link
+                  href="/signup"
+                  className="block w-full px-4 py-3 text-sm font-semibold text-white bg-brand-600 rounded-xl text-center"
+                  onClick={() => setMobileOpen(false)}
+                >
+                  Sign up
+                </Link>
+              </>
+            )}
           </div>
         )}
       </nav>
-
-      <AuthModal isOpen={authOpen} onClose={() => setAuthOpen(false)} defaultTab={authTab} />
     </>
   );
 }

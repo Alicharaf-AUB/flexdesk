@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
@@ -26,7 +27,7 @@ import {
   Leaf,
   Ban,
 } from "lucide-react";
-import { listings } from "@/data/mock";
+import type { Listing } from "@/lib/types";
 
 const perkIconMap: Record<string, React.ReactNode> = {
   "Wi-Fi": <Wifi className="w-5 h-5" />,
@@ -49,16 +50,107 @@ const ruleIconMap: Record<string, React.ReactNode> = {
 
 export default function ListingPage() {
   const params = useParams();
-  const listing = listings.find((l) => l.id === params.id) || listings[0];
+  const listingId = Array.isArray(params?.id) ? params.id[0] : params?.id;
+  const [listing, setListing] = useState<Listing | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const [currentPhoto, setCurrentPhoto] = useState(0);
   const [guests, setGuests] = useState(1);
   const [selectedDate] = useState("Today");
   const [selectedTime] = useState("Now");
   const [duration, setDuration] = useState("2h");
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function load() {
+      if (!listingId) {
+        setError("Invalid listing");
+        setIsLoading(false);
+        return;
+      }
+      try {
+        setIsLoading(true);
+        const res = await fetch(`/api/listings/${listingId}`);
+        if (!res.ok) throw new Error("Listing not found");
+        const data = await res.json();
+        if (isMounted) {
+          setListing(data.listing);
+          setError(null);
+        }
+      } catch (err) {
+        if (isMounted) setError((err as Error).message);
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    }
+    load();
+    return () => {
+      isMounted = false;
+    };
+  }, [listingId]);
 
   const durationHours: Record<string, number> = { "1h": 1, "2h": 2, "4h": 4, Day: 8 };
+
+  if (isLoading || !listing) {
+    return (
+      <div className="bg-blueprint min-h-screen">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="h-5 w-32 skeleton rounded mb-6" />
+          <div className="flex flex-col lg:flex-row gap-8">
+            <div className="flex-1 min-w-0 space-y-6">
+              <div className="aspect-video rounded-card skeleton" />
+              <div className="space-y-3">
+                <div className="h-6 w-1/2 skeleton rounded" />
+                <div className="h-4 w-1/3 skeleton rounded" />
+                <div className="h-3 w-3/4 skeleton rounded" />
+              </div>
+              <div className="bg-white rounded-card p-6">
+                <div className="h-5 w-40 skeleton rounded mb-4" />
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={`perk-skel-${i}`} className="h-10 skeleton rounded-chip" />
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="lg:w-95 shrink-0">
+              <div className="bg-white rounded-card p-6 border border-border-light">
+                <div className="h-8 w-24 skeleton rounded mb-6" />
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div className="h-14 skeleton rounded-(--radius-input)" />
+                  <div className="h-14 skeleton rounded-(--radius-input)" />
+                </div>
+                <div className="h-11 skeleton rounded-button" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const totalPrice = listing.pricePerHour * durationHours[duration] * guests;
+
+  if (error) {
+    return (
+      <div className="bg-blueprint min-h-screen">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+          <div className="bg-white rounded-card border border-border-light p-8 text-center" style={{ boxShadow: "var(--shadow-card)" }}>
+            <div className="text-sm font-semibold text-text-primary mb-2">Unable to load listing</div>
+            <p className="text-sm text-text-muted mb-4">{error}</p>
+            <Link
+              href="/search"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-button transition-colors"
+              style={{ boxShadow: "var(--shadow-button)" }}
+            >
+              Back to search
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-blueprint min-h-screen">
@@ -76,24 +168,28 @@ export default function ListingPage() {
           {/* ===== LEFT COLUMN ===== */}
           <div className="flex-1 min-w-0">
             {/* Photo Gallery */}
-            <div className="relative rounded-[var(--radius-card)] overflow-hidden bg-surface-muted mb-6" style={{ boxShadow: "var(--shadow-card)" }}>
-              <div className="aspect-[16/9] relative">
-                <img
+            <div className="relative rounded-card overflow-hidden bg-surface-muted mb-6" style={{ boxShadow: "var(--shadow-card)" }}>
+              <div className="aspect-video relative">
+                <Image
                   src={listing.photos[currentPhoto]}
                   alt={listing.name}
-                  className="w-full h-full object-cover transition-opacity duration-300"
+                  fill
+                  sizes="(min-width: 1024px) 800px, 100vw"
+                  className="object-cover transition-opacity duration-300"
                 />
 
                 {/* Nav arrows */}
                 {listing.photos.length > 1 && (
                   <>
                     <button
+                      aria-label="Previous photo"
                       onClick={() => setCurrentPhoto((p) => (p - 1 + listing.photos.length) % listing.photos.length)}
                       className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/80 hover:bg-white flex items-center justify-center shadow-md transition-all"
                     >
                       <ChevronLeft className="w-5 h-5 text-text-primary" />
                     </button>
                     <button
+                      aria-label="Next photo"
                       onClick={() => setCurrentPhoto((p) => (p + 1) % listing.photos.length)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/80 hover:bg-white flex items-center justify-center shadow-md transition-all"
                     >
@@ -106,6 +202,7 @@ export default function ListingPage() {
                 <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
                   {listing.photos.map((_, i) => (
                     <button
+                      aria-label={`Show photo ${i + 1}`}
                       key={i}
                       onClick={() => setCurrentPhoto(i)}
                       className={`w-2 h-2 rounded-full transition-all ${
@@ -149,13 +246,13 @@ export default function ListingPage() {
             </div>
 
             {/* What you get */}
-            <div className="bg-white rounded-[var(--radius-card)] p-6 mb-6" style={{ boxShadow: "var(--shadow-card)" }}>
+            <div className="bg-white rounded-card p-6 mb-6" style={{ boxShadow: "var(--shadow-card)" }}>
               <h2 className="text-lg font-bold text-text-primary mb-4">What you get</h2>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {listing.perks.map((perk) => (
                   <div
                     key={perk}
-                    className="flex items-center gap-3 p-3 rounded-[var(--radius-chip)] bg-surface-muted group hover:bg-brand-50 transition-colors"
+                    className="flex items-center gap-3 p-3 rounded-chip bg-surface-muted group hover:bg-brand-50 transition-colors"
                   >
                     <div className="text-brand-600 group-hover:scale-110 transition-transform">
                       {perkIconMap[perk] || <Plug className="w-5 h-5" />}
@@ -167,7 +264,7 @@ export default function ListingPage() {
             </div>
 
             {/* Vibe meter */}
-            <div className="bg-white rounded-[var(--radius-card)] p-6 mb-6" style={{ boxShadow: "var(--shadow-card)" }}>
+            <div className="bg-white rounded-card p-6 mb-6" style={{ boxShadow: "var(--shadow-card)" }}>
               <h2 className="text-lg font-bold text-text-primary mb-4">Space vibe</h2>
               <div className="space-y-4">
                 {[
@@ -192,7 +289,7 @@ export default function ListingPage() {
             </div>
 
             {/* Rules */}
-            <div className="bg-white rounded-[var(--radius-card)] p-6" style={{ boxShadow: "var(--shadow-card)" }}>
+            <div className="bg-white rounded-card p-6" style={{ boxShadow: "var(--shadow-card)" }}>
               <h2 className="text-lg font-bold text-text-primary mb-4">Space rules</h2>
               <div className="space-y-3">
                 {listing.rules.map((rule, i) => (
@@ -208,28 +305,34 @@ export default function ListingPage() {
           </div>
 
           {/* ===== RIGHT COLUMN: BOOKING BOX ===== */}
-          <div className="lg:w-[380px] shrink-0">
+          <div className="lg:w-95 shrink-0">
             <div className="lg:sticky lg:top-24">
               <div
-                className="bg-white rounded-[var(--radius-card)] p-6 border border-border-light"
+                className="bg-white rounded-card p-6 border border-border-light"
                 style={{ boxShadow: "var(--shadow-card)" }}
               >
                 {/* Price */}
                 <div className="flex items-baseline gap-1 mb-6">
-                  <span className="text-3xl font-bold text-text-primary">${listing.pricePerHour}</span>
-                  <span className="text-text-muted text-sm font-medium">/ hour</span>
+                  {listing.paidEnabled === false ? (
+                    <span className="text-3xl font-bold text-text-primary">Free</span>
+                  ) : (
+                    <>
+                      <span className="text-3xl font-bold text-text-primary">${listing.pricePerHour}</span>
+                      <span className="text-text-muted text-sm font-medium">/ hour</span>
+                    </>
+                  )}
                 </div>
 
                 {/* Date / Time */}
                 <div className="grid grid-cols-2 gap-3 mb-3">
-                  <div className="p-3 rounded-[var(--radius-input)] border border-border-light hover:border-brand-300 transition-colors cursor-pointer">
+                  <div className="p-3 rounded-(--radius-input) border border-border-light hover:border-brand-300 transition-colors cursor-pointer">
                     <p className="text-xs font-medium text-text-muted mb-0.5">Date</p>
                     <div className="flex items-center gap-2">
                       <Calendar className="w-4 h-4 text-brand-500" />
                       <span className="text-sm font-semibold text-text-primary">{selectedDate}</span>
                     </div>
                   </div>
-                  <div className="p-3 rounded-[var(--radius-input)] border border-border-light hover:border-brand-300 transition-colors cursor-pointer">
+                  <div className="p-3 rounded-(--radius-input) border border-border-light hover:border-brand-300 transition-colors cursor-pointer">
                     <p className="text-xs font-medium text-text-muted mb-0.5">Time</p>
                     <div className="flex items-center gap-2">
                       <Clock className="w-4 h-4 text-brand-500" />
@@ -239,7 +342,7 @@ export default function ListingPage() {
                 </div>
 
                 {/* Duration */}
-                <div className="p-3 rounded-[var(--radius-input)] border border-border-light mb-3">
+                <div className="p-3 rounded-(--radius-input) border border-border-light mb-3">
                   <p className="text-xs font-medium text-text-muted mb-2">Duration</p>
                   <div className="flex gap-2">
                     {["1h", "2h", "4h", "Day"].map((d) => (
@@ -259,7 +362,7 @@ export default function ListingPage() {
                 </div>
 
                 {/* Guests */}
-                <div className="p-3 rounded-[var(--radius-input)] border border-border-light mb-4">
+                <div className="p-3 rounded-(--radius-input) border border-border-light mb-4">
                   <p className="text-xs font-medium text-text-muted mb-2">Guests</p>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -269,13 +372,15 @@ export default function ListingPage() {
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <button
+                        <button
+                          aria-label="Decrease guests"
                         onClick={() => setGuests(Math.max(1, guests - 1))}
                         className="w-8 h-8 rounded-lg border border-border-light flex items-center justify-center hover:bg-surface-muted transition-colors"
                       >
                         <Minus className="w-4 h-4" />
                       </button>
-                      <button
+                        <button
+                          aria-label="Increase guests"
                         onClick={() => setGuests(Math.min(10, guests + 1))}
                         className="w-8 h-8 rounded-lg border border-border-light flex items-center justify-center hover:bg-surface-muted transition-colors"
                       >
@@ -287,26 +392,35 @@ export default function ListingPage() {
 
                 {/* Price breakdown */}
                 <div className="border-t border-border-light pt-4 mb-4 space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-text-secondary">
-                      ${listing.pricePerHour} x {durationHours[duration]}h x {guests} {guests === 1 ? "guest" : "guests"}
-                    </span>
-                    <span className="font-medium text-text-primary">${totalPrice}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-text-secondary">Service fee</span>
-                    <span className="font-medium text-text-primary">${Math.round(totalPrice * 0.1)}</span>
-                  </div>
-                  <div className="border-t border-border-light pt-2 flex items-center justify-between">
-                    <span className="font-bold text-text-primary">Total</span>
-                    <span className="font-bold text-text-primary text-lg">${totalPrice + Math.round(totalPrice * 0.1)}</span>
-                  </div>
+                  {listing.paidEnabled === false ? (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-text-secondary">No payment required</span>
+                      <span className="font-medium text-text-primary">$0</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-text-secondary">
+                          ${listing.pricePerHour} x {durationHours[duration]}h x {guests} {guests === 1 ? "guest" : "guests"}
+                        </span>
+                        <span className="font-medium text-text-primary">${totalPrice}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-text-secondary">Service fee</span>
+                        <span className="font-medium text-text-primary">${Math.round(totalPrice * 0.1)}</span>
+                      </div>
+                      <div className="border-t border-border-light pt-2 flex items-center justify-between">
+                        <span className="font-bold text-text-primary">Total</span>
+                        <span className="font-bold text-text-primary text-lg">${totalPrice + Math.round(totalPrice * 0.1)}</span>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* CTA */}
                 <Link
                   href={`/desk-map/${listing.id}`}
-                  className="flex items-center justify-center gap-2 w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-[var(--radius-button)] btn-press transition-colors text-base"
+                  className="flex items-center justify-center gap-2 w-full py-3.5 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-button btn-press transition-colors text-base"
                   style={{ boxShadow: "var(--shadow-button)" }}
                 >
                   Choose your desk

@@ -1,0 +1,189 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String
+  name         String?
+  role         String     @default("CUSTOMER")
+  accountType  String     @default("BOOKER")
+  companyDomain String?
+  idVerified   Boolean    @default(false)
+  addressVerified Boolean @default(false)
+  acceptedTermsAt DateTime?
+  acceptedLiabilityAt DateTime?
+  acceptedHouseRulesAt DateTime?
+  createdAt    DateTime   @default(now())
+  bookings     Booking[]
+  listings     Listing[]  @relation("ListingOwner")
+  supportRequests SupportRequest[]
+}
+
+model Listing {
+  id           String     @id @default(cuid())
+  name         String
+  neighborhood String
+  address      String
+  distance     String
+  rating       Float
+  reviewCount  Int
+  pricePerHour Int
+  photos       String
+  perks        String
+  vibeTags     String
+  availability String
+  lat          Float
+  lng          Float
+  description  String
+  rules        String
+  vibe         String
+  mode         String      @default("OPEN")
+  isPublic     Boolean     @default(true)
+  reviewsEnabled Boolean   @default(true)
+  requiresId   Boolean     @default(false)
+  securityDepositCents Int @default(0)
+  cancellationPolicy String @default("flexible")
+  houseRules   String      @default("[]")
+  requiresApproval Boolean @default(false)
+  paidEnabled      Boolean @default(true)
+  allowedEmails    String  @default("[]")
+  ownerId     String?
+  owner       User?    @relation("ListingOwner", fields: [ownerId], references: [id])
+  workspace    Workspace?
+  bookings     Booking[]
+  availabilityWindows AvailabilityWindow[]
+  blackoutDates BlackoutDate[]
+}
+
+model Workspace {
+  id        String  @id @default(cuid())
+  name      String
+  listingId String? @unique
+  listing   Listing? @relation(fields: [listingId], references: [id])
+  floors    Floor[]
+}
+
+model Floor {
+  id          String   @id @default(cuid())
+  name        String
+  sortOrder   Int
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  desks       Desk[]
+  zones       Zone[]
+  amenities   Amenity[]
+}
+
+model Desk {
+  id        String  @id @default(cuid())
+  label     String
+  zone      String
+  perks     String
+  x         Float
+  y         Float
+  width     Float
+  height    Float
+  rotation  Float   @default(0)
+  kind      String  @default("desk")
+  available Boolean @default(true)
+  whyLike   String?
+  floorId   String
+  floor     Floor   @relation(fields: [floorId], references: [id])
+  availabilityOverrides DeskAvailabilityOverride[]
+}
+
+model Zone {
+  id        String  @id @default(cuid())
+  type      String
+  name      String
+  x         Float
+  y         Float
+  width     Float
+  height    Float
+  rotation  Float   @default(0)
+  floorId   String
+  floor     Floor   @relation(fields: [floorId], references: [id])
+}
+
+model Amenity {
+  id      String  @id @default(cuid())
+  type    String
+  icon    String
+  x       Float
+  y       Float
+  name    String?
+  rotation Float  @default(0)
+  floorId String
+  floor   Floor   @relation(fields: [floorId], references: [id])
+}
+
+model Booking {
+  id         String   @id @default(cuid())
+  listingId  String
+  listing    Listing  @relation(fields: [listingId], references: [id])
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  deskLabel  String
+  date       String
+  time       String
+  duration   String
+  status     String
+  totalPrice Int
+  checkInCode String
+  createdAt  DateTime @default(now())
+}
+
+model AvailabilityWindow {
+  id        String   @id @default(cuid())
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id])
+  dayOfWeek Int
+  startTime String
+  endTime   String
+  timezone  String
+  isAllDay  Boolean  @default(false)
+  appliesToAllDesks Boolean @default(true)
+  createdAt DateTime @default(now())
+}
+
+model BlackoutDate {
+  id        String   @id @default(cuid())
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id])
+  date      String
+  startTime String?
+  endTime   String?
+  reason    String?
+  createdAt DateTime @default(now())
+}
+
+model DeskAvailabilityOverride {
+  id        String   @id @default(cuid())
+  deskId    String
+  desk      Desk     @relation(fields: [deskId], references: [id])
+  date      String
+  startTime String?
+  endTime   String?
+  available Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model SupportRequest {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  name      String?
+  email     String?
+  role      String?
+  topic     String
+  message   String
+  status    String   @default("open")
+  createdAt DateTime @default(now())
+}
